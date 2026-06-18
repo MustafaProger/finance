@@ -1,0 +1,21 @@
+{
+  "name": "Капитал — личные финансы",
+  "short_name": "Капитал",
+  "description": "Персональный менеджер доходов, расходов, бюджетов и счетов",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#07101d",
+  "theme_color": "#07101d",
+  "lang": "ru",
+  "orientation": "portrait-primary",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
