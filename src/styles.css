@@ -297,6 +297,12 @@ textarea:focus-visible {
   filter: brightness(1.08);
   transform: translateY(-1px);
 }
+.login-submit:disabled {
+  cursor: wait;
+  filter: saturate(0.7);
+  opacity: 0.75;
+  transform: none;
+}
 .login-note {
   display: flex;
   align-items: flex-start;
@@ -469,6 +475,34 @@ textarea:focus-visible {
   border-radius: 50%;
   background: #fbbf24;
   box-shadow: 0 0 10px rgba(251, 191, 36, 0.5);
+}
+.local-status.synced > i {
+  background: #34d399;
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.5);
+}
+.local-status.offline > i,
+.local-status.error > i {
+  background: #fb7185;
+  box-shadow: 0 0 10px rgba(251, 113, 133, 0.5);
+}
+.load-error {
+  padding: 24px;
+  text-align: center;
+}
+.load-error strong {
+  color: var(--text);
+}
+.load-error span {
+  max-width: 520px;
+}
+.load-error button {
+  min-height: 42px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 12px;
+  color: white;
+  background: var(--blue);
+  cursor: pointer;
 }
 .main {
   min-height: 100vh;

@@ -6,11 +6,13 @@
   "scripts": {
     "dev": "node server.mjs --dev",
     "build": "tsc -b && vite build",
+    "deploy": "npm run build && npx firebase-tools deploy",
     "start": "node server.mjs",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
+    "firebase": "^12.15.0",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",

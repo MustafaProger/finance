@@ -18,6 +18,7 @@ import {
   ChevronDown,
   CircleDollarSign,
   Clock3,
+  Cloud,
   CloudOff,
   Download,
   Eye,
@@ -85,13 +86,24 @@ import {
   titleOf,
 } from "./format";
 import { CategoryGlyph } from "./icons";
-import { readData, resetData, writeData } from "./storage";
+import {
+  connectData,
+  dataErrorMessage,
+  resetData,
+  writeData,
+  type SyncState,
+} from "./storage";
+import {
+  authErrorMessage,
+  firebaseConfigured,
+  login as firebaseLogin,
+  logout as firebaseLogout,
+  observeAuth,
+  type User,
+} from "./firebase";
 import { BudgetsPage, CategoriesPage } from "./Management";
 import { GlobalSearch } from "./GlobalSearch";
 
-const AUTH_HASH =
-  "2ce256f4ccc3a5ba01abb449dafbb3c74fff4ae21d8acdca2948d4ab3a03dbee";
-const SESSION_KEY = "kapital-session";
 const routes: { id: Route; label: string; icon: typeof BarChart3 }[] = [
   { id: "overview", label: "Обзор", icon: WalletCards },
   { id: "transactions", label: "Операции", icon: List },
@@ -374,27 +386,28 @@ function OperationRow({
   );
 }
 
-function Login({ onSuccess }: { onSuccess: () => void }) {
-  const [login, setLogin] = useState("mustafa");
+function Login() {
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [visible, setVisible] = useState(false);
   const [error, setError] = useState("");
   const [remember, setRemember] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    const digest = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(
-        `finance-v1|${login.trim().toLowerCase()}|${password}`,
-      ),
-    );
-    const hash = [...new Uint8Array(digest)]
-      .map((byte) => byte.toString(16).padStart(2, "0"))
-      .join("");
-    if (login.trim().toLowerCase() !== "mustafa" || hash !== AUTH_HASH)
-      return setError("Неверный логин или пароль");
-    (remember ? localStorage : sessionStorage).setItem(SESSION_KEY, "1");
-    onSuccess();
+    setError("");
+    if (!firebaseConfigured) {
+      setError("Сначала добавьте настройки Firebase в файл .env");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await firebaseLogin(email, password, remember);
+    } catch (loginError) {
+      setError(authErrorMessage(loginError));
+    } finally {
+      setSubmitting(false);
+    }
   };
   return (
     <main className="login-page">
@@ -428,13 +441,15 @@ function Login({ onSuccess }: { onSuccess: () => void }) {
         </div>
         <form onSubmit={submit} className="login-form">
           <label>
-            <span>Логин</span>
+            <span>Электронная почта</span>
             <div className="login-input">
               <UserRound size={20} />
               <input
-                value={login}
-                onChange={(event) => setLogin(event.target.value)}
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                type="email"
                 autoComplete="username"
+                placeholder="you@example.com"
                 required
               />
             </div>
@@ -468,13 +483,13 @@ function Login({ onSuccess }: { onSuccess: () => void }) {
             <span>Оставаться в системе</span>
           </label>
           <p className="login-error">{error}</p>
-          <button className="login-submit" type="submit">
-            Войти <ArrowRight size={19} />
+          <button className="login-submit" type="submit" disabled={submitting}>
+            {submitting ? "Подключаем…" : "Войти"} <ArrowRight size={19} />
           </button>
         </form>
         <p className="login-note">
-          <CloudOff size={16} /> Данные хранятся локально и не покидают это
-          устройство.
+          <Cloud size={16} /> Данные зашифрованно передаются в Firebase и
+          доступны только вашему аккаунту.
         </p>
       </section>
     </main>
@@ -1573,7 +1588,7 @@ function SettingsPage({
   onLogout,
 }: {
   data: AppData;
-  onData: (value: AppData) => void;
+  onData: (value: AppData) => void | Promise<void>;
   onLogout: () => void;
 }) {
   const importRef = useRef<HTMLInputElement>(null);
@@ -1606,14 +1621,15 @@ function SettingsPage({
             <FileUp />
             <i>
               <strong>Импорт резервной копии</strong>
-              <small>Заменить локальные данные из JSON-файла</small>
+              <small>Заменить данные на всех устройствах из JSON-файла</small>
             </i>
           </span>
           <ArrowRight />
         </button>
         <button
           onClick={async () => {
-            if (confirm("Вернуть исходные данные?")) onData(await resetData());
+            if (confirm("Вернуть исходные данные?"))
+              await onData(await resetData(data.profile.name));
           }}
         >
           <span>
@@ -1633,9 +1649,17 @@ function SettingsPage({
           onChange={async (event) => {
             const file = event.target.files?.[0];
             if (!file) return;
+            if (
+              !confirm(
+                "Заменить облачные операции, счета, категории и бюджеты данными из выбранного файла?",
+              )
+            ) {
+              event.target.value = "";
+              return;
+            }
             const value = JSON.parse(await file.text()) as AppData;
-            await writeData(value);
-            onData(value);
+            await onData(value);
+            event.target.value = "";
           }}
         />
       </section>
@@ -1672,12 +1696,11 @@ function SettingsPage({
 }
 
 export default function App() {
-  const [authorized, setAuthorized] = useState(
-    Boolean(
-      localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY),
-    ),
-  );
+  const [user, setUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const [data, setData] = useState<AppData | null>(null);
+  const [syncState, setSyncState] = useState<SyncState>("syncing");
+  const [loadError, setLoadError] = useState("");
   const [route, setRoute] = useState<Route>(routeFromHash);
   const [selectedMonth, setSelectedMonth] = useState("");
   const [monthOpen, setMonthOpen] = useState(false);
@@ -1688,16 +1711,51 @@ export default function App() {
   const [globalSearch, setGlobalSearch] = useState(false);
   const [balanceAccount, setBalanceAccount] = useState<Account | undefined>();
   useEffect(() => {
-    if (authorized)
-      readData().then((value) => {
+    return observeAuth((currentUser) => {
+      setUser(currentUser);
+      setAuthReady(true);
+      if (!currentUser) {
+        setData(null);
+        setSelectedMonth("");
+      }
+    });
+  }, []);
+  useEffect(() => {
+    if (!user) return;
+    let unsubscribe: (() => void) | undefined;
+    let cancelled = false;
+    setLoadError("");
+    setSyncState("syncing");
+    connectData(
+      user.uid,
+      user.displayName || user.email?.split("@")[0] || "Пользователь",
+      (value) => {
+        if (cancelled) return;
         setData(value);
-        setSelectedMonth(
-          [...value.transactions.map((item) => item.date.slice(0, 7))]
-            .sort()
-            .at(-1) || new Date().toISOString().slice(0, 7),
+        setSelectedMonth((current) =>
+          current
+            ? current
+            : [...value.transactions.map((item) => item.date.slice(0, 7))]
+                .sort()
+                .at(-1) || new Date().toISOString().slice(0, 7),
         );
+      },
+      setSyncState,
+      (error) => setLoadError(dataErrorMessage(error)),
+    )
+      .then((dispose) => {
+        if (cancelled) dispose();
+        else unsubscribe = dispose;
+      })
+      .catch((error: unknown) => {
+        setSyncState("error");
+        setLoadError(dataErrorMessage(error));
       });
-  }, [authorized]);
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [user]);
   useEffect(() => {
     const syncRoute = () => {
       const value = location.hash.slice(1) as Route;
@@ -1713,7 +1771,23 @@ export default function App() {
     setMobileMenu(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
-  if (!authorized) return <Login onSuccess={() => setAuthorized(true)} />;
+  if (!authReady)
+    return (
+      <div className="app-loading">
+        <LoaderCircle className="spin" />
+        <span>Проверяем сессию</span>
+      </div>
+    );
+  if (!user) return <Login />;
+  if (loadError && !data)
+    return (
+      <div className="app-loading load-error">
+        <CloudOff />
+        <strong>Не удалось подключиться к облаку</strong>
+        <span>{loadError}</span>
+        <button onClick={() => location.reload()}>Повторить</button>
+      </div>
+    );
   if (!data || !selectedMonth)
     return (
       <div className="app-loading">
@@ -1721,7 +1795,16 @@ export default function App() {
         <span>Загружаем финансы</span>
       </div>
     );
-  const saveTransaction = async (item: Transaction) => {
+  const persistData = (value: AppData, previous: AppData = data) => {
+    setSyncState("syncing");
+    const pendingWrite = writeData(user.uid, value, previous);
+    setData(value);
+    void pendingWrite.catch((error: unknown) => {
+      setSyncState("error");
+      setLoadError(dataErrorMessage(error));
+    });
+  };
+  const saveTransaction = (item: Transaction) => {
     const next = structuredClone(data);
     const index = next.transactions.findIndex(
       (current) => current.id === item.id,
@@ -1731,19 +1814,17 @@ export default function App() {
       next.transactions[index] = item;
     } else next.transactions.push(item);
     adjustCurrentBalances(next, item, 1);
-    await writeData(next);
-    setData(next);
+    persistData(next);
     setSelectedMonth(item.date.slice(0, 7));
     setTransaction(undefined);
   };
-  const deleteTransaction = async (id: string) => {
+  const deleteTransaction = (id: string) => {
     if (!confirm("Удалить операцию?")) return;
     const next = structuredClone(data);
     const existing = next.transactions.find((item) => item.id === id);
     if (existing) adjustCurrentBalances(next, existing, -1);
     next.transactions = next.transactions.filter((item) => item.id !== id);
-    await writeData(next);
-    setData(next);
+    persistData(next);
     setTransaction(undefined);
   };
   const months = [
@@ -1763,10 +1844,7 @@ export default function App() {
   const bottomRoutes = routes.filter((item) =>
     ["overview", "transactions", "analytics", "accounts"].includes(item.id),
   );
-  const saveData = async (value: AppData) => {
-    await writeData(value);
-    setData(value);
-  };
+  const saveData = (value: AppData) => persistData(value);
   return (
     <div className="app">
       <aside className={`sidebar ${mobileMenu ? "mobile-open" : ""}`}>
@@ -1790,11 +1868,23 @@ export default function App() {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <div className="local-status">
-            <CloudOff />
+          <div className={`local-status ${syncState}`}>
+            {syncState === "offline" || syncState === "error" ? (
+              <CloudOff />
+            ) : (
+              <Cloud />
+            )}
             <span>
-              <strong>Локальный режим</strong>
-              <small>Данные на этом устройстве</small>
+              <strong>
+                {syncState === "synced"
+                  ? "Данные синхронизированы"
+                  : syncState === "syncing"
+                    ? "Синхронизация…"
+                    : syncState === "offline"
+                      ? "Офлайн-режим"
+                      : "Ошибка синхронизации"}
+              </strong>
+              <small>{user.email}</small>
             </span>
             <i />
           </div>
@@ -1910,18 +2000,15 @@ export default function App() {
             <SettingsPage
               data={data}
               onData={(value) => {
-                setData(value);
+                const saving = saveData(value);
                 setSelectedMonth(
                   [...value.transactions.map((item) => item.date.slice(0, 7))]
                     .sort()
                     .at(-1) || selectedMonth,
                 );
+                return saving;
               }}
-              onLogout={() => {
-                localStorage.removeItem(SESSION_KEY);
-                sessionStorage.removeItem(SESSION_KEY);
-                setAuthorized(false);
-              }}
+              onLogout={() => void firebaseLogout()}
             />
           )}
         </div>
@@ -1975,14 +2062,13 @@ export default function App() {
         <BalanceEditor
           account={balanceAccount}
           onClose={() => setBalanceAccount(undefined)}
-          onSave={async (value) => {
+          onSave={(value) => {
             const next = structuredClone(data);
             const account = next.accounts.find(
               (item) => item.id === balanceAccount.id,
             );
             if (account) account.currentBalance = value;
-            await writeData(next);
-            setData(next);
+            persistData(next);
             setBalanceAccount(undefined);
           }}
         />
