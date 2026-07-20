@@ -34,6 +34,8 @@ export function GlobalSearch({
           item.fromAccount,
           item.toAccount,
           item.location,
+          ...(item.tags || []),
+          ...(item.tags || []).map((tag) => `#${tag}`),
         ].some((value) =>
           String(value || "")
             .toLowerCase()
@@ -62,7 +64,7 @@ export function GlobalSearch({
             autoFocus
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Категория, комментарий, счёт или место"
+            placeholder="Категория, метка, комментарий, счёт или место"
           />
           <button aria-label="Закрыть поиск" onClick={onClose}>
             <X />
@@ -88,6 +90,12 @@ export function GlobalSearch({
                     <strong>{titleOf(item)}</strong>
                     <small>
                       {category.name} · {dateLabel(item.date, true)}
+                      {item.tags?.length
+                        ? ` · ${item.tags
+                            .slice(0, 2)
+                            .map((tag) => `#${tag}`)
+                            .join(" ")}`
+                        : ""}
                     </small>
                   </span>
                   <b className={item.type}>
@@ -95,7 +103,7 @@ export function GlobalSearch({
                       ? "+"
                       : item.type === "expense"
                         ? "−"
-                        : ""}
+                        : "↔ "}
                     {money(amountOf(item), currencyOf(item))}
                   </b>
                 </button>

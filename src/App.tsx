@@ -132,6 +132,118 @@ const tooltipStyle = {
   boxShadow: "0 18px 50px rgba(0,0,0,.3)",
 };
 
+type CashflowPeriod = 1 | 3 | 6 | 12 | "all";
+
+const cashflowPeriods: {
+  value: CashflowPeriod;
+  label: string;
+  title: string;
+}[] = [
+  { value: 1, label: "1 мес.", title: "1 месяц" },
+  { value: 3, label: "3 мес.", title: "3 месяца" },
+  { value: 6, label: "6 мес.", title: "6 месяцев" },
+  { value: 12, label: "1 год", title: "1 год" },
+  { value: "all", label: "Всё", title: "всё время" },
+];
+
+const accountColors = [
+  "#3B82F6",
+  "#8B5CF6",
+  "#10B981",
+  "#F97316",
+  "#EC4899",
+  "#14B8A6",
+];
+
+const accountCurrencies = ["RUB", "EUR", "USD", "GBP", "AED", "TRY"];
+
+function currencyMark(currency: string) {
+  if (currency === "RUB") return "₽";
+  if (currency === "EUR") return "€";
+  if (currency === "USD") return "$";
+  if (currency === "GBP") return "£";
+  return currency;
+}
+
+function useBodyScrollLock(locked: boolean) {
+  useEffect(() => {
+    if (!locked) return;
+    const scrollY = window.scrollY;
+    const { overflow, position, top, width } = document.body.style;
+    document.body.style.overflow = "hidden";
+    document.body.style.position = "fixed";
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = "100%";
+    return () => {
+      document.body.style.overflow = overflow;
+      document.body.style.position = position;
+      document.body.style.top = top;
+      document.body.style.width = width;
+      window.scrollTo({ top: scrollY, behavior: "auto" });
+    };
+  }, [locked]);
+}
+
+function cashflowMonthCount(
+  data: AppData,
+  selectedMonth: string,
+  period: CashflowPeriod,
+) {
+  if (period !== "all") return period;
+  const earliest = data.transactions
+    .map((item) => item.date.slice(0, 7))
+    .filter((month) => month <= selectedMonth)
+    .sort()[0];
+  if (!earliest) return 1;
+  const [startYear, startMonth] = earliest.split("-").map(Number);
+  const [endYear, endMonth] = selectedMonth.split("-").map(Number);
+  return Math.max(1, (endYear - startYear) * 12 + endMonth - startMonth + 1);
+}
+
+function cashflowDailyKeys(selectedMonth: string) {
+  const [year, month] = selectedMonth.split("-").map(Number);
+  const current = new Date();
+  const currentMonth = `${current.getFullYear()}-${String(
+    current.getMonth() + 1,
+  ).padStart(2, "0")}`;
+  const days =
+    selectedMonth === currentMonth
+      ? current.getDate()
+      : new Date(year, month, 0).getDate();
+  return Array.from(
+    { length: days },
+    (_, index) => `${selectedMonth}-${String(index + 1).padStart(2, "0")}`,
+  );
+}
+
+function CashflowPeriodControl({
+  value,
+  onChange,
+}: {
+  value: CashflowPeriod;
+  onChange: (value: CashflowPeriod) => void;
+}) {
+  return (
+    <div
+      className="chart-period-control"
+      role="group"
+      aria-label="Период графика"
+    >
+      {cashflowPeriods.map((item) => (
+        <button
+          type="button"
+          key={item.label}
+          className={value === item.value ? "active" : ""}
+          aria-pressed={value === item.value}
+          onClick={() => onChange(item.value)}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function Select({
   value,
   options,
@@ -212,15 +324,29 @@ function CashflowChart({
   data,
   selectedMonth,
   compact = false,
+  period = 6,
 }: {
   data: AppData;
   selectedMonth: string;
   compact?: boolean;
+  period?: CashflowPeriod;
 }) {
-  const chartData = monthKeys(selectedMonth).map((key) => ({
-    month: monthLabel(key, true).replace(".", ""),
-    ...statsFor(data, key),
-  }));
+  const chartData =
+    period === 1
+      ? cashflowDailyKeys(selectedMonth).map((key) => ({
+          month: String(Number(key.slice(-2))),
+          ...statsFor(data, key),
+        }))
+      : monthKeys(
+          selectedMonth,
+          cashflowMonthCount(data, selectedMonth, period),
+        ).map((key) => ({
+          month:
+            period === "all"
+              ? `${monthLabel(key, true).replace(".", "")} ’${key.slice(2, 4)}`
+              : monthLabel(key, true).replace(".", ""),
+          ...statsFor(data, key),
+        }));
   return (
     <div className={`chart-shell ${compact ? "compact" : ""}`}>
       <ResponsiveContainer
@@ -251,6 +377,7 @@ function CashflowChart({
             tickLine={false}
             tick={{ fill: "#77839a", fontSize: 11 }}
             dy={8}
+            minTickGap={28}
           />
           <YAxis
             axisLine={false}
@@ -299,11 +426,11 @@ function Donut({
   selectedMonth: string;
 }) {
   const categories = categoryStats(data, selectedMonth);
-  const [excludedCategoryIds, setExcludedCategoryIds] = useState<string[]>(
-    [],
-  );
+  const [excludedCategoryIds, setExcludedCategoryIds] = useState<string[]>([]);
   const excludedIds = new Set(excludedCategoryIds);
-  const visibleCategories = categories.filter((item) => !excludedIds.has(item.id));
+  const visibleCategories = categories.filter(
+    (item) => !excludedIds.has(item.id),
+  );
   const total = visibleCategories.reduce((sum, item) => sum + item.value, 0);
   const excludedTotal = categories
     .filter((item) => excludedIds.has(item.id))
@@ -349,7 +476,9 @@ function Donut({
           <div className="donut-center">
             <strong aria-live="polite">{compactMoney(total)}</strong>
             <span>
-              {visibleCategories.length ? "учтено в расходах" : "нет учтённых расходов"}
+              {visibleCategories.length
+                ? "учтено в расходах"
+                : "нет учтённых расходов"}
             </span>
           </div>
         </div>
@@ -410,7 +539,7 @@ function OperationRow({
       ? "Перевод"
       : categoryOf(data, item.categoryId).name;
   const sign =
-    item.type === "income" ? "+" : item.type === "expense" ? "−" : "";
+    item.type === "income" ? "+" : item.type === "expense" ? "−" : "↔ ";
   return (
     <button className="operation-row" type="button" onClick={onClick}>
       <CategoryBadge data={data} transaction={item} />
@@ -420,6 +549,12 @@ function OperationRow({
           {category}
           <i>·</i>
           {item.type === "income" ? item.toAccount : item.fromAccount}
+          {item.tags?.length
+            ? ` · ${item.tags
+                .slice(0, 2)
+                .map((tag) => `#${tag}`)
+                .join(" ")}`
+            : ""}
         </span>
       </span>
       <span className={`operation-amount ${item.type}`}>
@@ -572,7 +707,25 @@ function TransactionModal({
   );
   const [location, setLocation] = useState(transaction?.location || "");
   const [comment, setComment] = useState(transaction?.comment || "");
+  const [tagsText, setTagsText] = useState(
+    transaction?.tags?.map((item) => `#${item}`).join(" ") || "",
+  );
+  const [destinationAmount, setDestinationAmount] = useState(
+    transaction?.type === "transfer" ? String(transaction.toAmount) : "",
+  );
   const [repeat, setRepeat] = useState(Boolean(transaction?.repeat));
+  const sourceAccount =
+    data.accounts.find((item) => item.name === fromAccount) || data.accounts[0];
+  const transferAccounts = data.accounts
+    .filter((item) => item.id !== sourceAccount?.id)
+    .sort(
+      (left, right) =>
+        Number(right.currency === sourceAccount?.currency) -
+        Number(left.currency === sourceAccount?.currency),
+    );
+  const destinationAccount = transferAccounts.find(
+    (item) => item.name === toAccount,
+  );
   const categories = data.categories.filter(
     (item) =>
       item.type === "mixed" ||
@@ -586,15 +739,36 @@ function TransactionModal({
     )
       setCategoryId(categories[0]?.id || "");
   }, [type]);
+  useEffect(() => {
+    if (type !== "transfer") return;
+    if (!transferAccounts.some((item) => item.name === toAccount))
+      setToAccount(transferAccounts[0]?.name || "");
+  }, [type, fromAccount, toAccount]);
   const save = () => {
     const value = Number(amount);
     if (!value || value <= 0) return;
     const source =
       data.accounts.find((item) => item.name === fromAccount) ||
       data.accounts[0];
-    const destination =
-      data.accounts.find((item) => item.name === toAccount) || source;
+    if (!source) return;
+    const destination = data.accounts.find(
+      (item) => item.name === toAccount && item.id !== source.id,
+    );
+    if (type === "transfer" && !destination) return;
+    const receivedValue =
+      type === "transfer" && destination!.currency !== source.currency
+        ? Number(destinationAmount)
+        : value;
+    if (type === "transfer" && (!receivedValue || receivedValue <= 0)) return;
     const category = categoryOf(data, categoryId);
+    const tags = [
+      ...new Set(
+        tagsText
+          .split(/[#,;\s]+/)
+          .map((item) => item.trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    ];
     onSave({
       id: transaction?.id || `local-${crypto.randomUUID()}`,
       type,
@@ -606,12 +780,13 @@ function TransactionModal({
       fromAccount: source.name,
       fromAmount: type === "income" ? 0 : value,
       fromCurrency: source.currency,
-      toAccount: type === "transfer" ? destination.name : source.name,
-      toAmount: type === "expense" ? 0 : value,
-      toCurrency: destination.currency,
+      toAccount: type === "transfer" ? destination!.name : source.name,
+      toAmount:
+        type === "expense" ? 0 : type === "transfer" ? receivedValue : value,
+      toCurrency: type === "transfer" ? destination!.currency : source.currency,
       createdAt: transaction?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      tags: transaction?.tags || [],
+      tags,
       location: location.trim(),
       repeat,
     });
@@ -630,7 +805,12 @@ function TransactionModal({
         aria-label={transaction ? "Изменение операции" : "Добавление операции"}
       >
         <header>
-          <button className="sheet-icon" type="button" onClick={onClose}>
+          <button
+            className="sheet-icon"
+            type="button"
+            aria-label="Закрыть"
+            onClick={onClose}
+          >
             <X size={21} />
           </button>
           <Select
@@ -659,7 +839,7 @@ function TransactionModal({
             onChange={(event) => setAmount(event.target.value)}
             placeholder="0"
           />
-          <b>₽</b>
+          <b>{currencyMark(sourceAccount?.currency || "RUB")}</b>
         </div>
         {type !== "transfer" && (
           <div className="category-picker">
@@ -700,19 +880,43 @@ function TransactionModal({
             />
           </div>
           {type === "transfer" && (
-            <div className="sheet-row">
-              <ArrowLeft size={20} />
-              <span>На счёт</span>
-              <Select
-                label="Счёт"
-                value={toAccount}
-                onChange={setToAccount}
-                options={data.accounts.map((item) => ({
-                  value: item.name,
-                  label: item.name,
-                }))}
-              />
-            </div>
+            <>
+              <div className="sheet-row">
+                <ArrowLeft size={20} />
+                <span>На счёт</span>
+                <Select
+                  label="Счёт"
+                  value={toAccount}
+                  onChange={setToAccount}
+                  options={transferAccounts.map((item) => ({
+                    value: item.name,
+                    label: `${item.name} · ${item.currency}`,
+                  }))}
+                />
+              </div>
+              {destinationAccount &&
+                destinationAccount.currency !== sourceAccount.currency && (
+                  <label className="sheet-row">
+                    <ArrowRight size={20} />
+                    <span>Зачислится</span>
+                    <div className="transfer-received-field">
+                      <input
+                        inputMode="decimal"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={destinationAmount}
+                        onChange={(event) =>
+                          setDestinationAmount(event.target.value)
+                        }
+                        placeholder="0"
+                        aria-label="Сумма зачисления"
+                      />
+                      <b>{currencyMark(destinationAccount.currency)}</b>
+                    </div>
+                  </label>
+                )}
+            </>
           )}
           <label className="sheet-row">
             <CalendarDays size={20} />
@@ -739,6 +943,15 @@ function TransactionModal({
               value={comment}
               onChange={(event) => setComment(event.target.value)}
               placeholder="Необязательно"
+            />
+          </label>
+          <label className="sheet-row">
+            <Tag size={20} />
+            <span>Метки</span>
+            <input
+              value={tagsText}
+              onChange={(event) => setTagsText(event.target.value)}
+              placeholder="#работа #подписки"
             />
           </label>
           <label className="sheet-row">
@@ -907,6 +1120,8 @@ function Transactions({
               item.categoryName,
               item.fromAccount,
               item.toAccount,
+              ...(item.tags || []),
+              ...(item.tags || []).map((tag) => `#${tag}`),
             ].some((value) =>
               String(value || "")
                 .toLowerCase()
@@ -1023,6 +1238,7 @@ function Analytics({
   selectedMonth: string;
   edit: (item: Transaction) => void;
 }) {
+  const [cashflowPeriod, setCashflowPeriod] = useState<CashflowPeriod>(6);
   const stats = statsFor(data, selectedMonth);
   const previous = statsFor(data, prevMonth(selectedMonth));
   const net = stats.income - stats.expense;
@@ -1058,6 +1274,9 @@ function Analytics({
   const change = previous.expense
     ? ((stats.expense - previous.expense) / previous.expense) * 100
     : 0;
+  const cashflowPeriodTitle =
+    cashflowPeriods.find((item) => item.value === cashflowPeriod)?.title ||
+    "6 месяцев";
   return (
     <div className="analytics-page">
       <div className="analytics-kpis">
@@ -1090,14 +1309,24 @@ function Analytics({
         <div className="section-heading">
           <div>
             <h2>Динамика денежных потоков</h2>
-            <p>Полная картина за последние 6 месяцев</p>
+            <p>Полная картина за {cashflowPeriodTitle}</p>
           </div>
-          <div className="legend">
-            <span className="income">Доходы</span>
-            <span className="expense">Расходы</span>
+          <div className="chart-heading-tools">
+            <CashflowPeriodControl
+              value={cashflowPeriod}
+              onChange={setCashflowPeriod}
+            />
+            <div className="legend">
+              <span className="income">Доходы</span>
+              <span className="expense">Расходы</span>
+            </div>
           </div>
         </div>
-        <CashflowChart data={data} selectedMonth={selectedMonth} />
+        <CashflowChart
+          data={data}
+          selectedMonth={selectedMonth}
+          period={cashflowPeriod}
+        />
       </section>
       <section className="surface">
         <div className="section-heading">
@@ -1483,73 +1712,325 @@ function Budgets({
   );
 }
 
+function AccountEditor({
+  data,
+  onClose,
+  onSave,
+}: {
+  data: AppData;
+  onClose: () => void;
+  onSave: (account: Account) => Promise<boolean>;
+}) {
+  const [name, setName] = useState("");
+  const [type, setType] = useState<Account["type"]>("card");
+  const [currency, setCurrency] = useState("RUB");
+  const [balance, setBalance] = useState("0");
+  const [color, setColor] = useState(accountColors[0]);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  useBodyScrollLock(true);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setError("");
+    const normalizedName = name.trim();
+    const normalizedBalance = Number(balance.replace(",", "."));
+    if (!normalizedName) {
+      setError("Введите название счёта");
+      return;
+    }
+    if (
+      data.accounts.some(
+        (item) =>
+          item.name.trim().toLocaleLowerCase("ru") ===
+          normalizedName.toLocaleLowerCase("ru"),
+      )
+    ) {
+      setError("Счёт с таким названием уже существует");
+      return;
+    }
+    if (!Number.isFinite(normalizedBalance)) {
+      setError("Введите корректный начальный баланс");
+      return;
+    }
+    setSaving(true);
+    const saved = await onSave({
+      id: `account-${crypto.randomUUID()}`,
+      name: normalizedName,
+      currency,
+      type,
+      color,
+      openingBalance: normalizedBalance,
+      currentBalance: normalizedBalance,
+    });
+    if (!saved) {
+      setError("Не удалось сохранить счёт. Проверьте подключение и повторите.");
+      setSaving(false);
+    }
+  };
+  return (
+    <div
+      className="modal-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <form
+        className="management-modal account-editor"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-account-title"
+        onSubmit={submit}
+      >
+        <header>
+          <div>
+            <h2 id="new-account-title">Новый счёт</h2>
+            <p>Название, валюта и начальный остаток</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Закрыть">
+            <X />
+          </button>
+        </header>
+        <label className="management-field">
+          <span>Название</span>
+          <input
+            autoFocus
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Например, Накопительный"
+          />
+        </label>
+        <div className="management-field">
+          <span>Тип счёта</span>
+          <div className="segmented two-options">
+            {(
+              [
+                ["card", "Банковский счёт"],
+                ["cash", "Наличные"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                type="button"
+                key={value}
+                className={type === value ? "active" : ""}
+                aria-pressed={type === value}
+                onClick={() => setType(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="management-field">
+          <span>Валюта</span>
+          <Select
+            label="Валюта"
+            value={currency}
+            onChange={setCurrency}
+            options={accountCurrencies.map((value) => ({
+              value,
+              label: value,
+            }))}
+          />
+        </div>
+        <label className="management-field">
+          <span>Начальный баланс</span>
+          <div className="amount-field account-opening-balance">
+            <input
+              inputMode="decimal"
+              value={balance}
+              onChange={(event) => setBalance(event.target.value)}
+              aria-label="Начальный баланс"
+            />
+            <b>{currencyMark(currency)}</b>
+          </div>
+        </label>
+        <div className="management-field">
+          <span>Цвет</span>
+          <div className="color-picker">
+            {accountColors.map((value) => (
+              <button
+                type="button"
+                key={value}
+                className={color === value ? "active" : ""}
+                aria-pressed={color === value}
+                style={{ "--choice": value } as React.CSSProperties}
+                onClick={() => setColor(value)}
+                aria-label={`Цвет ${value}`}
+              />
+            ))}
+          </div>
+        </div>
+        <p className="management-error" role="alert">
+          {error}
+        </p>
+        <button className="management-submit" type="submit" disabled={saving}>
+          {saving ? "Сохраняем…" : "Добавить счёт"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 function Accounts({
   data,
   selectedMonth,
   onEditBalance,
+  onChange,
 }: {
   data: AppData;
   selectedMonth: string;
   onEditBalance: (account: Account) => void;
+  onChange: (data: AppData) => Promise<boolean>;
 }) {
+  const [creating, setCreating] = useState(false);
+  const [notice, setNotice] = useState("");
+  const monthItems = data.transactions.filter((item) =>
+    item.date.startsWith(selectedMonth),
+  );
+  const saveAccount = async (account: Account) => {
+    const next = structuredClone(data);
+    next.accounts.push(account);
+    const saved = await onChange(next);
+    if (!saved) return false;
+    setCreating(false);
+    setNotice(`Счёт «${account.name}» добавлен`);
+    return true;
+  };
+  const removeAccount = async (account: Account) => {
+    if (data.accounts.length <= 1) {
+      setNotice("Последний счёт удалить нельзя");
+      return;
+    }
+    const related = data.transactions.filter(
+      (item) =>
+        (item.fromAccount === account.name &&
+          item.fromCurrency === account.currency) ||
+        (item.toAccount === account.name &&
+          item.toCurrency === account.currency),
+    ).length;
+    if (related) {
+      setNotice(
+        `Счёт «${account.name}» связан с ${related} операциями. Сначала перенесите или удалите эти операции.`,
+      );
+      return;
+    }
+    if (!confirm(`Удалить пустой счёт «${account.name}»?`)) return;
+    const next = structuredClone(data);
+    next.accounts = next.accounts.filter((item) => item.id !== account.id);
+    const saved = await onChange(next);
+    if (!saved) {
+      setNotice("Не удалось удалить счёт. Проверьте подключение и повторите.");
+      return;
+    }
+    setNotice(`Счёт «${account.name}» удалён`);
+  };
   return (
-    <div className="accounts-grid">
-      {data.accounts.map((account) => {
-        const monthItems = data.transactions.filter((item) =>
-          item.date.startsWith(selectedMonth),
-        );
-        const income = monthItems
-          .filter(
-            (item) =>
-              item.toAccount === account.name &&
-              item.toCurrency === account.currency,
-          )
-          .reduce((sum, item) => sum + item.toAmount, 0);
-        const expense = monthItems
-          .filter(
-            (item) =>
-              item.fromAccount === account.name &&
-              item.fromCurrency === account.currency,
-          )
-          .reduce((sum, item) => sum + item.fromAmount, 0);
-        const balance = accountBalance(data, account.name);
-        return (
-          <section
-            className="account-card"
-            style={{ "--account": account.color } as React.CSSProperties}
-            key={account.id}
+    <div className="page-stack">
+      <section className="surface management-hero">
+        <div>
+          <span className="management-hero-icon">
+            <WalletCards />
+          </span>
+          <div>
+            <h2>Ваши счета</h2>
+            <p>Управляйте наличными, картами и валютными счетами</p>
+          </div>
+        </div>
+        <button className="primary-button" onClick={() => setCreating(true)}>
+          <Plus /> Счёт
+        </button>
+      </section>
+      {notice && (
+        <p className="account-management-notice" role="status">
+          {notice}
+          <button
+            aria-label="Закрыть уведомление"
+            onClick={() => setNotice("")}
           >
-            <header>
-              <span>
-                <Landmark />
-              </span>
-              <i>Активен</i>
-            </header>
-            <p>
-              {account.name}
-              <small>
-                {account.type === "cash" ? "Наличные" : "Банковский счёт"} ·{" "}
-                {account.currency}
-              </small>
-            </p>
-            <div className="account-balance-row">
-              <strong>{money(balance, account.currency, 2)}</strong>
-              <button
-                aria-label={`Изменить баланс ${account.name}`}
-                onClick={() => onEditBalance(account)}
-              >
-                <Pencil />
-              </button>
-            </div>
-            <footer>
-              <span className="income">+{money(income, account.currency)}</span>
-              <span className="expense">
-                −{money(expense, account.currency)}
-              </span>
-            </footer>
-          </section>
-        );
-      })}
+            <X />
+          </button>
+        </p>
+      )}
+      <div className="accounts-grid">
+        {data.accounts.map((account) => {
+          const income = monthItems
+            .filter(
+              (item) =>
+                item.toAccount === account.name &&
+                item.toCurrency === account.currency,
+            )
+            .reduce((sum, item) => sum + item.toAmount, 0);
+          const expense = monthItems
+            .filter(
+              (item) =>
+                item.fromAccount === account.name &&
+                item.fromCurrency === account.currency,
+            )
+            .reduce((sum, item) => sum + item.fromAmount, 0);
+          const balance = accountBalance(data, account.name);
+          return (
+            <section
+              className="account-card"
+              style={{ "--account": account.color } as React.CSSProperties}
+              key={account.id}
+            >
+              <header>
+                <span>
+                  <Landmark />
+                </span>
+                <div className="account-card-header-actions">
+                  <i>Активен</i>
+                  <button
+                    type="button"
+                    className="danger"
+                    aria-label={`Удалить счёт ${account.name}`}
+                    title={
+                      data.accounts.length <= 1
+                        ? "Последний счёт удалить нельзя"
+                        : "Удалить счёт"
+                    }
+                    disabled={data.accounts.length <= 1}
+                    onClick={() => void removeAccount(account)}
+                  >
+                    <Trash2 />
+                  </button>
+                </div>
+              </header>
+              <p>
+                {account.name}
+                <small>
+                  {account.type === "cash" ? "Наличные" : "Банковский счёт"} ·{" "}
+                  {account.currency}
+                </small>
+              </p>
+              <div className="account-balance-row">
+                <strong>{money(balance, account.currency, 2)}</strong>
+                <button
+                  aria-label={`Изменить баланс ${account.name}`}
+                  onClick={() => onEditBalance(account)}
+                >
+                  <Pencil />
+                </button>
+              </div>
+              <footer>
+                <span className="income">
+                  +{money(income, account.currency)}
+                </span>
+                <span className="expense">
+                  −{money(expense, account.currency)}
+                </span>
+              </footer>
+            </section>
+          );
+        })}
+      </div>
+      {creating && (
+        <AccountEditor
+          data={data}
+          onClose={() => setCreating(false)}
+          onSave={saveAccount}
+        />
+      )}
     </div>
   );
 }
@@ -1579,10 +2060,16 @@ function BalanceEditor({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <form className="management-modal balance-editor" onSubmit={submit}>
+      <form
+        className="management-modal balance-editor"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="balance-editor-title"
+        onSubmit={submit}
+      >
         <header>
           <div>
-            <h2>Изменить баланс</h2>
+            <h2 id="balance-editor-title">Изменить баланс</h2>
             <p>
               {account.name} · {account.currency}
             </p>
@@ -1786,26 +2273,9 @@ export default function App() {
   const [mobileMenu, setMobileMenu] = useState(false);
   const [globalSearch, setGlobalSearch] = useState(false);
   const [balanceAccount, setBalanceAccount] = useState<Account | undefined>();
-  useEffect(() => {
-    const modalOpen =
-      transaction !== undefined || globalSearch || Boolean(balanceAccount);
-    if (!modalOpen) return;
-    const scrollY = window.scrollY;
-    const { overflow, position, top, width, touchAction } = document.body.style;
-    document.body.style.overflow = "hidden";
-    document.body.style.position = "fixed";
-    document.body.style.top = `-${scrollY}px`;
-    document.body.style.width = "100%";
-    document.body.style.touchAction = "none";
-    return () => {
-      document.body.style.overflow = overflow;
-      document.body.style.position = position;
-      document.body.style.top = top;
-      document.body.style.width = width;
-      document.body.style.touchAction = touchAction;
-      window.scrollTo({ top: scrollY, behavior: "auto" });
-    };
-  }, [transaction, globalSearch, balanceAccount]);
+  useBodyScrollLock(
+    transaction !== undefined || globalSearch || Boolean(balanceAccount),
+  );
   useEffect(() => {
     return observeAuth((currentUser) => {
       setUser(currentUser);
@@ -1895,10 +2365,14 @@ export default function App() {
     setSyncState("syncing");
     const pendingWrite = writeData(user.uid, value, previous);
     setData(value);
-    void pendingWrite.catch((error: unknown) => {
-      setSyncState("error");
-      setLoadError(dataErrorMessage(error));
-    });
+    return pendingWrite
+      .then(() => true)
+      .catch((error: unknown) => {
+        setSyncState("error");
+        setLoadError(dataErrorMessage(error));
+        setData(previous);
+        return false;
+      });
   };
   const saveTransaction = (item: Transaction) => {
     const next = structuredClone(data);
@@ -1940,7 +2414,9 @@ export default function App() {
   const bottomRoutes = routes.filter((item) =>
     ["overview", "transactions", "analytics", "accounts"].includes(item.id),
   );
-  const saveData = (value: AppData) => persistData(value);
+  const saveData = (value: AppData) => {
+    void persistData(value);
+  };
   return (
     <div className="app">
       <aside className={`sidebar ${mobileMenu ? "mobile-open" : ""}`}>
@@ -2090,6 +2566,7 @@ export default function App() {
               data={data}
               selectedMonth={selectedMonth}
               onEditBalance={setBalanceAccount}
+              onChange={persistData}
             />
           )}{" "}
           {route === "settings" && (

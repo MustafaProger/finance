@@ -673,6 +673,50 @@ textarea:focus-visible {
   border-radius: 50%;
   background: currentColor;
 }
+.chart-heading-tools {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+}
+.chart-period-control {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 3px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(7, 15, 27, 0.68);
+}
+.chart-period-control::-webkit-scrollbar {
+  display: none;
+}
+.chart-period-control button {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 9px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.chart-period-control button:hover {
+  color: #dbe5f4;
+  background: rgba(255, 255, 255, 0.045);
+}
+.chart-period-control button.active {
+  color: white;
+  background: rgba(96, 165, 250, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.18);
+}
 .income {
   color: var(--green) !important;
 }
@@ -880,7 +924,9 @@ textarea:focus-visible {
   inset: 3px;
   border-radius: inherit;
   background: var(--category);
-  transition: transform 0.18s ease, opacity 0.18s ease;
+  transition:
+    transform 0.18s ease,
+    opacity 0.18s ease;
 }
 .category-toggle.is-excluded .category-toggle-radio::after {
   opacity: 0;
@@ -995,7 +1041,10 @@ textarea:focus-visible {
   color: var(--green);
 }
 .operation-amount.expense strong {
-  color: #f0f3f8;
+  color: var(--red);
+}
+.operation-amount.transfer strong {
+  color: #60a5fa;
 }
 .page-stack {
   display: grid;
@@ -1195,6 +1244,8 @@ textarea:focus-visible {
   padding: 22px;
   display: grid;
   place-items: center;
+  height: 100dvh;
+  overflow: hidden;
   background: rgba(1, 5, 12, 0.72);
   backdrop-filter: blur(13px);
   animation: fade 0.18s ease;
@@ -1206,13 +1257,28 @@ textarea:focus-visible {
 }
 .transaction-sheet {
   width: min(100%, 650px);
-  max-height: min(92vh, 880px);
-  overflow: auto;
+  max-height: min(calc(100dvh - 44px), 880px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+  -webkit-overflow-scrolling: touch;
   border: 1px solid var(--line-strong);
   border-radius: 29px;
   background: #0c1422;
   box-shadow: 0 35px 100px rgba(0, 0, 0, 0.5);
   animation: sheet 0.24s ease;
+}
+.transaction-sheet::-webkit-scrollbar {
+  width: 8px;
+}
+.transaction-sheet::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.35);
+  background-clip: padding-box;
 }
 @keyframes sheet {
   from {
@@ -1393,6 +1459,29 @@ textarea:focus-visible {
 .sheet-row .select-menu {
   left: auto;
   right: 0;
+}
+.transfer-received-field {
+  min-width: 0;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.transfer-received-field input {
+  width: min(100%, 130px);
+  min-width: 0;
+  height: 40px;
+  border: 0;
+  outline: 0;
+  color: white;
+  background: transparent;
+  text-align: right;
+  font-size: 13px;
+}
+.transfer-received-field b {
+  color: #60a5fa;
+  font-size: 11px;
 }
 .switch {
   justify-self: end;
@@ -1627,8 +1716,9 @@ textarea:focus-visible {
 }
 .management-modal {
   width: min(100%, 560px);
-  max-height: min(92vh, 840px);
+  max-height: min(92dvh, 840px);
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 24px;
   border: 1px solid var(--line-strong);
   border-radius: 27px;
@@ -1716,6 +1806,9 @@ textarea:focus-visible {
   background: rgba(57, 132, 255, 0.17);
   box-shadow: inset 0 0 0 1px rgba(57, 132, 255, 0.16);
 }
+.segmented.two-options {
+  grid-template-columns: repeat(2, 1fr);
+}
 .color-picker,
 .icon-picker {
   display: flex;
@@ -1736,6 +1829,22 @@ textarea:focus-visible {
   box-shadow:
     0 0 0 2px #0d1727,
     0 0 0 4px var(--choice);
+}
+.management-error {
+  min-height: 18px;
+  margin: 12px 0 -3px;
+  color: var(--red);
+  font-size: 10px;
+}
+.account-editor {
+  width: min(100%, 510px);
+}
+.account-editor .select-trigger,
+.account-opening-balance {
+  min-height: 49px;
+}
+.account-opening-balance input {
+  font-size: 20px;
 }
 .icon-picker button {
   --choice: #64748b;
@@ -1768,6 +1877,10 @@ textarea:focus-visible {
   font-weight: 800;
   background: linear-gradient(145deg, #4e95ff, #2469ee);
   cursor: pointer;
+}
+.management-submit:disabled {
+  opacity: 0.58;
+  cursor: wait;
 }
 .budget-card-head {
   display: flex !important;
@@ -2409,6 +2522,33 @@ textarea:focus-visible {
   display: flex;
   justify-content: space-between;
 }
+.account-card-header-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.account-card-header-actions > button {
+  width: 31px;
+  height: 31px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(251, 113, 133, 0.18);
+  border-radius: 10px;
+  color: var(--red);
+  background: rgba(251, 113, 133, 0.06);
+  cursor: pointer;
+}
+.account-card-header-actions > button:hover:not(:disabled) {
+  border-color: rgba(251, 113, 133, 0.38);
+  background: rgba(251, 113, 133, 0.12);
+}
+.account-card-header-actions > button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.account-card-header-actions > button svg {
+  width: 15px;
+}
 .account-card header > span {
   width: 43px;
   height: 43px;
@@ -2481,6 +2621,36 @@ textarea:focus-visible {
   display: flex;
   gap: 14px;
   font-size: 9px;
+}
+.account-management-notice {
+  margin: 0;
+  min-height: 48px;
+  padding: 11px 12px 11px 15px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid rgba(96, 165, 250, 0.19);
+  border-radius: 15px;
+  color: #cbd5e1;
+  background: rgba(59, 130, 246, 0.08);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.account-management-notice button {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 9px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+}
+.account-management-notice svg {
+  width: 14px;
 }
 .settings-grid {
   display: grid;
@@ -2753,7 +2923,7 @@ textarea:focus-visible {
   }
   .transaction-sheet {
     width: 100%;
-    max-height: 94vh;
+    max-height: 94dvh;
     border-width: 1px 0 0;
     border-radius: 28px 28px 0 0;
     padding-bottom: max(17px, env(safe-area-inset-bottom));
@@ -2844,6 +3014,16 @@ textarea:focus-visible {
   .section-heading {
     align-items: flex-start;
   }
+  .analytics-wide .section-heading {
+    display: grid;
+  }
+  .analytics-wide .chart-heading-tools {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .analytics-wide .chart-period-control {
+    width: 100%;
+  }
   .section-heading .primary-button {
     width: 42px;
     min-height: 42px;
@@ -2919,7 +3099,7 @@ textarea:focus-visible {
     grid-template-columns: 1fr;
   }
   .management-modal {
-    max-height: 94vh;
+    max-height: 94dvh;
     padding: 20px 16px max(20px, env(safe-area-inset-bottom));
     border-radius: 27px 27px 0 0;
   }
