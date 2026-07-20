@@ -46,6 +46,23 @@ export const titleOf = (item: Transaction) =>
   item.type === "transfer"
     ? `${item.fromAccount} → ${item.toAccount}`
     : item.payee || item.comment || item.categoryName || "Операция";
+
+const transactionTime = (item: Transaction) => {
+  const createdAt = Date.parse(item.createdAt || "");
+  if (!Number.isNaN(createdAt)) return createdAt;
+  const date = Date.parse(`${item.date}T00:00:00`);
+  return Number.isNaN(date) ? 0 : date;
+};
+
+// Операция, добавленная последней, должна быть первой — дата самой траты
+// может быть намеренно выбрана более ранней.
+export const compareTransactionsNewest = (
+  left: Transaction,
+  right: Transaction,
+) =>
+  transactionTime(right) - transactionTime(left) ||
+  right.id.localeCompare(left.id);
+
 export const categoryOf = (data: AppData, id: string): Category =>
   data.categories.find((item) => item.id === id) ?? {
     id: "none",

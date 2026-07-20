@@ -1,10 +1,20 @@
 import { FormEvent, useMemo, useState } from "react";
-import { Pencil, Plus, Tag, Target, Trash2, X } from "lucide-react";
-import type { AppData, Budget, Category } from "./types";
+import { Check, Pencil, Plus, Tag, Target, Trash2, X } from "lucide-react";
+import type { AppData, Budget, BudgetItem, Category } from "./types";
 import { categoryOf, categoryStats, money, monthLabel } from "./format";
 import { CategoryGlyph } from "./icons";
 
 type ChangeHandler = (data: AppData) => void | Promise<void>;
+
+const budgetTotal = (budget: Budget) =>
+  budget.items?.reduce((sum, item) => sum + Number(item.amount || 0), 0) ||
+  Number(budget.limit || 0);
+
+const completedBudgetTotal = (budget: Budget) =>
+  budget.items?.reduce(
+    (sum, item) => sum + (item.completed ? Number(item.amount || 0) : 0),
+    0,
+  ) || 0;
 
 const colors = [
   "#718096",
@@ -290,14 +300,55 @@ function BudgetEditor({
   const [categoryId, setCategoryId] = useState(
     budget?.categoryId || available[0]?.id || "",
   );
-  const [limit, setLimit] = useState(String(budget?.limit || ""));
+  const [items, setItems] = useState<BudgetItem[]>(() =>
+    budget?.items?.length
+      ? budget.items
+      : budget
+        ? [
+            {
+              id: `budget-item-${crypto.randomUUID()}`,
+              name: "Общий лимит",
+              amount: budget.limit,
+              completed: false,
+            },
+          ]
+        : [],
+  );
+  const total = items.reduce(
+    (sum, item) => sum + (Number(item.amount) || 0),
+    0,
+  );
+  const updateItem = (id: string, patch: Partial<BudgetItem>) =>
+    setItems((current) =>
+      current.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+    );
+  const addItem = () =>
+    setItems((current) => {
+      // Не создаём стопку пустых строк, если пользователь ещё заполняет
+      // предыдущую позицию.
+      if (current.some((item) => !item.name.trim() || !Number(item.amount)))
+        return current;
+      return [
+        ...current,
+        {
+          id: `budget-item-${crypto.randomUUID()}`,
+          name: "",
+          amount: 0,
+          completed: false,
+        },
+      ];
+    });
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (!categoryId || Number(limit) <= 0) return;
+    const validItems = items.filter(
+      (item) => item.name.trim() && Number(item.amount) > 0,
+    );
+    if (!categoryId || !validItems.length) return;
     onSave({
       id: budget?.id || `budget-${crypto.randomUUID()}`,
       categoryId,
-      limit: Number(limit),
+      limit: validItems.reduce((sum, item) => sum + Number(item.amount), 0),
+      items: validItems.map((item) => ({ ...item, name: item.name.trim() })),
     });
   };
   return (
@@ -311,7 +362,7 @@ function BudgetEditor({
         <header>
           <div>
             <h2>{budget ? "Изменить бюджет" : "Новый бюджет"}</h2>
-            <p>Выберите категорию и месячный лимит</p>
+            <p>Соберите список трат — сумма посчитается сама</p>
           </div>
           <button type="button" onClick={onClose}>
             <X />
@@ -339,21 +390,59 @@ function BudgetEditor({
             ))}
           </div>
         </div>
-        <label className="management-field">
-          <span>Лимит на месяц</span>
-          <div className="amount-field">
-            <input
-              inputMode="decimal"
-              type="number"
-              min="1"
-              step="1"
-              value={limit}
-              onChange={(event) => setLimit(event.target.value)}
-              placeholder="0"
-            />
-            <b>₽</b>
+        <div className="management-field budget-items-field">
+          <span>Плановые траты</span>
+          <div className="budget-item-editor-list">
+            {items.map((item) => (
+              <div className="budget-item-editor" key={item.id}>
+                <input
+                  value={item.name}
+                  onChange={(event) =>
+                    updateItem(item.id, { name: event.target.value })
+                  }
+                  placeholder="Например, ChatGPT"
+                  aria-label="Название траты"
+                />
+                <div className="amount-field">
+                  <input
+                    inputMode="decimal"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={item.amount || ""}
+                    onChange={(event) =>
+                      updateItem(item.id, {
+                        amount: Number(event.target.value),
+                      })
+                    }
+                    placeholder="0"
+                    aria-label="Сумма траты"
+                  />
+                  <b>₽</b>
+                </div>
+                <button
+                  type="button"
+                  className="danger budget-item-remove"
+                  aria-label={`Удалить ${item.name || "трату"}`}
+                  onClick={() =>
+                    setItems((current) =>
+                      current.filter((entry) => entry.id !== item.id),
+                    )
+                  }
+                >
+                  <Trash2 />
+                </button>
+              </div>
+            ))}
           </div>
-        </label>
+          <button type="button" className="budget-item-add" onClick={addItem}>
+            <Plus /> Добавить трату
+          </button>
+          <div className="budget-plan-total">
+            <span>Бюджет на месяц</span>
+            <strong>{money(total)}</strong>
+          </div>
+        </div>
         <button className="management-submit" type="submit">
           {budget ? "Сохранить бюджет" : "Добавить бюджет"}
         </button>
@@ -377,13 +466,19 @@ export function BudgetsPage({
   );
   const save = async (budget: Budget) => {
     const next = structuredClone(data);
-    const sameCategory = next.budgets.findIndex(
-      (item) => item.categoryId === budget.categoryId && item.id !== budget.id,
-    );
     const index = next.budgets.findIndex((item) => item.id === budget.id);
     if (index >= 0) next.budgets[index] = budget;
-    else if (sameCategory >= 0) next.budgets[sameCategory].limit = budget.limit;
-    else next.budgets.push(budget);
+    else {
+      const sameCategory = next.budgets.findIndex(
+        (item) => item.categoryId === budget.categoryId,
+      );
+      if (sameCategory >= 0)
+        next.budgets[sameCategory] = {
+          ...budget,
+          id: next.budgets[sameCategory].id,
+        };
+      else next.budgets.push(budget);
+    }
     await onChange(next);
     setEditing(undefined);
   };
@@ -395,11 +490,23 @@ export function BudgetsPage({
       budgets: data.budgets.filter((item) => item.id !== budget.id),
     });
   };
-  const totalLimit = data.budgets.reduce((sum, item) => sum + item.limit, 0);
-  const totalSpent = data.budgets.reduce(
-    (sum, item) => sum + (spent.get(item.categoryId) || 0),
+  const totalLimit = data.budgets.reduce(
+    (sum, item) => sum + budgetTotal(item),
     0,
   );
+  const totalSpent = data.budgets.reduce(
+    (sum, item) =>
+      sum + (spent.get(item.categoryId) || 0) + completedBudgetTotal(item),
+    0,
+  );
+  const toggleItem = async (budgetId: string, itemId: string) => {
+    const next = structuredClone(data);
+    const budget = next.budgets.find((item) => item.id === budgetId);
+    const item = budget?.items?.find((entry) => entry.id === itemId);
+    if (!item) return;
+    item.completed = !item.completed;
+    await onChange(next);
+  };
   return (
     <div className="page-stack">
       <section className="surface management-hero">
@@ -421,8 +528,11 @@ export function BudgetsPage({
       <div className="budget-grid">
         {data.budgets.map((budget) => {
           const category = categoryOf(data, budget.categoryId);
-          const value = spent.get(budget.categoryId) || 0;
-          const ratio = budget.limit ? (value / budget.limit) * 100 : 0;
+          const transactionsTotal = spent.get(budget.categoryId) || 0;
+          const completedTotal = completedBudgetTotal(budget);
+          const value = transactionsTotal + completedTotal;
+          const limit = budgetTotal(budget);
+          const ratio = limit ? (value / limit) * 100 : 0;
           return (
             <section className="surface budget-card" key={budget.id}>
               <div className="budget-card-head">
@@ -457,7 +567,7 @@ export function BudgetsPage({
                 </div>
               </div>
               <b>
-                {money(value)} <small>из {money(budget.limit)}</small>
+                {money(value)} <small>из {money(limit)}</small>
               </b>
               <div className="budget-progress">
                 <i
@@ -471,10 +581,40 @@ export function BudgetsPage({
                 <span>{ratio.toFixed(0)}% использовано</span>
                 <strong>
                   {ratio <= 100
-                    ? `Осталось ${money(budget.limit - value)}`
-                    : `Превышено ${money(value - budget.limit)}`}
+                    ? `Осталось ${money(limit - value)}`
+                    : `Превышено ${money(value - limit)}`}
                 </strong>
               </footer>
+              {budget.items?.length ? (
+                <div className="budget-checklist">
+                  <div className="budget-checklist-head">
+                    <span>План</span>
+                    <small>Отмечено {money(completedTotal)}</small>
+                  </div>
+                  {budget.items.map((item) => (
+                    <label
+                      className={item.completed ? "checked" : ""}
+                      key={item.id}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={item.completed}
+                        onChange={() => void toggleItem(budget.id, item.id)}
+                      />
+                      <i>
+                        <Check />
+                      </i>
+                      <span>{item.name}</span>
+                      <b>{money(item.amount)}</b>
+                    </label>
+                  ))}
+                  {transactionsTotal > 0 && (
+                    <small className="budget-operations-note">
+                      По операциям: {money(transactionsTotal)}
+                    </small>
+                  )}
+                </div>
+              ) : null}
             </section>
           );
         })}

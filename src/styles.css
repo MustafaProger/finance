@@ -59,8 +59,8 @@ a {
 button:focus-visible,
 input:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid #60a5fa;
-  outline-offset: 2px;
+  outline: 2px solid rgba(226, 232, 240, 0.78);
+  outline-offset: 3px;
 }
 .spin {
   animation: spin 1s linear infinite;
@@ -212,6 +212,11 @@ textarea:focus-visible {
   display: grid;
   gap: 20px;
 }
+.remember-note {
+  margin: -4px 0 0;
+  color: #8f9bb0;
+  font-size: 12px;
+}
 .login-form > label > span:first-child {
   display: block;
   margin-bottom: 9px;
@@ -232,9 +237,9 @@ textarea:focus-visible {
   transition: 0.2s;
 }
 .login-input:focus-within {
-  color: #70a7ff;
-  border-color: rgba(75, 139, 255, 0.68);
-  box-shadow: 0 0 0 4px rgba(57, 132, 255, 0.1);
+  color: #cbd5e1;
+  border-color: rgba(203, 213, 225, 0.42);
+  box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.09);
 }
 .login-input input {
   min-width: 0;
@@ -791,6 +796,9 @@ textarea:focus-visible {
   display: grid;
   gap: 20px;
 }
+.donut-visual {
+  min-width: 0;
+}
 .donut-chart {
   position: relative;
   width: 210px;
@@ -815,37 +823,91 @@ textarea:focus-visible {
   color: var(--muted);
   font-size: 9px;
 }
+.donut-filter-note {
+  min-height: 18px;
+  margin: 10px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: center;
+}
+.donut-filter-note svg {
+  color: #94a3b8;
+}
 .category-breakdown {
   display: grid;
-  gap: 10px;
+  gap: 5px;
 }
-.category-breakdown > div {
+.category-toggle {
   min-width: 0;
+  width: 100%;
+  padding: 8px;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 4px 9px;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 9px;
   align-items: center;
+  border: 1px solid transparent;
+  border-radius: 13px;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: 0.18s ease;
 }
-.category-breakdown i {
-  grid-row: 1 / 3;
-  width: 8px;
-  height: 8px;
+.category-toggle:hover {
+  border-color: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.035);
+}
+.category-toggle.is-excluded {
+  opacity: 0.54;
+}
+.category-toggle-radio {
+  --category: #64748b;
+  width: 18px;
+  height: 18px;
+  position: relative;
+  display: block;
+  box-sizing: border-box;
+  border: 2px solid var(--category);
   border-radius: 50%;
 }
-.category-breakdown span {
+.category-toggle-radio::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: inherit;
+  background: var(--category);
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+.category-toggle.is-excluded .category-toggle-radio::after {
+  opacity: 0;
+  transform: scale(0.35);
+}
+.category-toggle-copy {
+  overflow: hidden;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.category-toggle-copy > span {
   overflow: hidden;
   color: #cbd4e0;
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.category-breakdown strong {
-  font-size: 11px;
-}
-.category-breakdown small {
-  grid-column: 2 / 4;
+.category-toggle-copy small {
+  overflow: hidden;
   color: var(--muted);
   font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.category-toggle strong {
+  font-size: 11px;
 }
 
 /* Operations and selects */
@@ -997,8 +1059,8 @@ textarea:focus-visible {
   transition: transform 0.2s;
 }
 .select-control.is-open .select-trigger {
-  border-color: rgba(83, 145, 255, 0.65);
-  box-shadow: 0 0 0 4px rgba(57, 132, 255, 0.09);
+  border-color: rgba(203, 213, 225, 0.42);
+  box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.09);
 }
 .select-control.is-open .select-trigger svg {
   transform: rotate(180deg);
@@ -1403,6 +1465,8 @@ textarea:focus-visible {
   grid-column: 1 / -1;
 }
 .small-chart {
+  min-width: 0;
+  position: relative;
   height: 210px;
   overflow: hidden;
   border-radius: 20px;
@@ -1626,8 +1690,8 @@ textarea:focus-visible {
 }
 .management-field > input:focus,
 .amount-field:focus-within {
-  border-color: rgba(83, 145, 255, 0.65);
-  box-shadow: 0 0 0 4px rgba(57, 132, 255, 0.09);
+  border-color: rgba(203, 213, 225, 0.42);
+  box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.09);
 }
 .segmented {
   padding: 4px;
@@ -1769,6 +1833,99 @@ textarea:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.budget-items-field {
+  gap: 10px;
+}
+.budget-item-editor-list {
+  display: grid;
+  gap: 8px;
+}
+.budget-item-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 118px 36px;
+  gap: 8px;
+  align-items: center;
+}
+.budget-item-editor > input,
+.budget-item-editor .amount-field {
+  min-width: 0;
+}
+.budget-item-editor > input {
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  outline: 0;
+  color: #eef4ff;
+  background: #091321;
+  font-size: 13px;
+  font-weight: 600;
+}
+.budget-item-editor > input::placeholder {
+  color: var(--muted-2);
+  font-weight: 500;
+}
+.budget-item-editor > input:focus {
+  border-color: rgba(203, 213, 225, 0.42);
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.09);
+}
+.budget-item-editor .amount-field {
+  min-height: 44px;
+  padding-inline: 10px;
+  border-radius: 12px;
+}
+.budget-item-editor .amount-field input {
+  height: 42px;
+  font-size: 13px;
+  font-weight: 750;
+}
+.budget-item-remove {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(251, 113, 133, 0.18);
+  border-radius: 10px;
+  color: #fb7185;
+  background: rgba(251, 113, 133, 0.07);
+}
+.budget-item-remove svg {
+  width: 15px;
+}
+.budget-item-add {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px dashed rgba(96, 165, 250, 0.36);
+  border-radius: 11px;
+  color: #83b7ff;
+  background: rgba(59, 130, 246, 0.07);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.budget-item-add:hover {
+  border-style: solid;
+  background: rgba(59, 130, 246, 0.13);
+}
+.budget-item-add svg {
+  width: 16px;
+}
+.budget-plan-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.budget-plan-total strong {
+  color: #f5f8ff;
+  font-size: 16px;
 }
 .amount-field {
   display: flex;
@@ -2149,6 +2306,75 @@ textarea:focus-visible {
 }
 .budget-card footer strong {
   color: #c6cfdb;
+}
+.budget-checklist {
+  display: grid;
+  gap: 6px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.budget-checklist-head {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 10px;
+}
+.budget-checklist-head span {
+  font-weight: 800;
+  color: #cbd5e1;
+}
+.budget-checklist label {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  color: #cbd5e1;
+  cursor: pointer;
+}
+.budget-checklist input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.budget-checklist label > i {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #41536e;
+  border-radius: 6px;
+  color: transparent;
+  font-style: normal;
+}
+.budget-checklist label > i svg {
+  width: 13px;
+}
+.budget-checklist label > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.budget-checklist label > b {
+  color: #e8eef8;
+  font-size: 12px;
+}
+.budget-checklist label.checked > i {
+  border-color: #4e95ff;
+  color: white;
+  background: #347cf2;
+}
+.budget-checklist label.checked > span,
+.budget-checklist label.checked > b {
+  color: #8e9aab;
+  text-decoration: line-through;
+}
+.budget-operations-note {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
 }
 .account-card {
   position: relative;

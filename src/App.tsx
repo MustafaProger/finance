@@ -76,6 +76,7 @@ import {
   categoryOf,
   categoryStats,
   compactMoney,
+  compareTransactionsNewest,
   currencyOf,
   dateLabel,
   money,
@@ -103,6 +104,7 @@ import {
 } from "./firebase";
 import { BudgetsPage, CategoriesPage } from "./Management";
 import { GlobalSearch } from "./GlobalSearch";
+import { importZenCsv } from "./csvImport";
 
 const routes: { id: Route; label: string; icon: typeof BarChart3 }[] = [
   { id: "overview", label: "Обзор", icon: WalletCards },
@@ -297,53 +299,98 @@ function Donut({
   selectedMonth: string;
 }) {
   const categories = categoryStats(data, selectedMonth);
-  const total = categories.reduce((sum, item) => sum + item.value, 0);
+  const [excludedCategoryIds, setExcludedCategoryIds] = useState<string[]>(
+    [],
+  );
+  const excludedIds = new Set(excludedCategoryIds);
+  const visibleCategories = categories.filter((item) => !excludedIds.has(item.id));
+  const total = visibleCategories.reduce((sum, item) => sum + item.value, 0);
+  const excludedTotal = categories
+    .filter((item) => excludedIds.has(item.id))
+    .reduce((sum, item) => sum + item.value, 0);
+  const chartCategories = visibleCategories.length
+    ? visibleCategories
+    : [{ id: "empty", color: "#334155", value: 1 }];
+  const toggleCategory = (id: string) => {
+    setExcludedCategoryIds((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id],
+    );
+  };
   return (
     <div className="donut-layout">
-      <div className="donut-chart">
-        <ResponsiveContainer
-          width="100%"
-          height="100%"
-          minWidth={0}
-          minHeight={0}
-          initialDimension={{ width: 210, height: 210 }}
-        >
-          <PieChart>
-            <Pie
-              data={categories.slice(0, 8)}
-              dataKey="value"
-              innerRadius="68%"
-              outerRadius="91%"
-              paddingAngle={2}
-              cornerRadius={8}
-              stroke="none"
-            >
-              {categories.slice(0, 8).map((item) => (
-                <Cell key={item.id} fill={item.color} />
-              ))}
-            </Pie>
-            <Tooltip
-              contentStyle={tooltipStyle}
-              formatter={(value) => money(Number(value))}
-            />
-          </PieChart>
-        </ResponsiveContainer>
-        <div className="donut-center">
-          <strong>{compactMoney(total)}</strong>
-          <span>расходы</span>
+      <div className="donut-visual">
+        <div className="donut-chart">
+          <ResponsiveContainer
+            width="100%"
+            height="100%"
+            minWidth={0}
+            minHeight={0}
+            initialDimension={{ width: 210, height: 210 }}
+          >
+            <PieChart>
+              <Pie
+                data={chartCategories}
+                dataKey="value"
+                innerRadius="68%"
+                outerRadius="91%"
+                paddingAngle={visibleCategories.length ? 2 : 0}
+                cornerRadius={8}
+                stroke="none"
+                isAnimationActive={false}
+              >
+                {chartCategories.map((item) => (
+                  <Cell key={item.id} fill={item.color} />
+                ))}
+              </Pie>
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="donut-center">
+            <strong aria-live="polite">{compactMoney(total)}</strong>
+            <span>
+              {visibleCategories.length ? "учтено в расходах" : "нет учтённых расходов"}
+            </span>
+          </div>
         </div>
+        {excludedTotal > 0 && (
+          <p className="donut-filter-note" aria-live="polite">
+            <Filter size={14} /> Не учитывается {money(excludedTotal)}
+          </p>
+        )}
       </div>
       <div className="category-breakdown">
-        {categories.slice(0, 7).map((item) => (
-          <div key={item.id}>
-            <i style={{ background: item.color }} />
-            <span>{item.name}</span>
-            <strong>
-              {total ? Math.round((item.value / total) * 100) : 0}%
-            </strong>
-            <small>{money(item.value)}</small>
-          </div>
-        ))}
+        {categories.map((item) => {
+          const excluded = excludedIds.has(item.id);
+          return (
+            <button
+              className={`category-toggle ${excluded ? "is-excluded" : ""}`}
+              type="button"
+              key={item.id}
+              aria-pressed={!excluded}
+              aria-label={`${excluded ? "Включить" : "Исключить"} ${item.name} в расчёте`}
+              onClick={() => toggleCategory(item.id)}
+            >
+              <span
+                className="category-toggle-radio"
+                style={{ "--category": item.color } as React.CSSProperties}
+                aria-hidden="true"
+              />
+              <span className="category-toggle-copy">
+                <span>{item.name}</span>
+                <small>
+                  {money(item.value)}
+                  {excluded && " · исключено"}
+                </small>
+              </span>
+              <strong>
+                {excluded || !total
+                  ? "—"
+                  : `${Math.round((item.value / total) * 100)}%`}
+              </strong>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -391,7 +438,7 @@ function Login() {
   const [password, setPassword] = useState("");
   const [visible, setVisible] = useState(false);
   const [error, setError] = useState("");
-  const [remember, setRemember] = useState(true);
+  const remember = true;
   const [submitting, setSubmitting] = useState(false);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -474,14 +521,7 @@ function Login() {
               </button>
             </div>
           </label>
-          <label className="remember">
-            <input
-              type="checkbox"
-              checked={remember}
-              onChange={(event) => setRemember(event.target.checked)}
-            />
-            <span>Оставаться в системе</span>
-          </label>
+          <p className="remember-note">Вход сохранится на этом устройстве</p>
           <p className="login-error">{error}</p>
           <button className="login-submit" type="submit" disabled={submitting}>
             {submitting ? "Подключаем…" : "Войти"} <ArrowRight size={19} />
@@ -763,10 +803,7 @@ function Overview({
   const stats = statsFor(data, selectedMonth);
   const net = stats.income - stats.expense;
   const recent = [...data.transactions]
-    .sort(
-      (a, b) =>
-        b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt),
-    )
+    .sort(compareTransactionsNewest)
     .slice(0, 6);
   const totalBalance = data.accounts
     .filter((item) => item.currency === "RUB")
@@ -876,11 +913,7 @@ function Transactions({
                 .includes(query.toLowerCase()),
             ),
         )
-        .sort(
-          (a, b) =>
-            b.date.localeCompare(a.date) ||
-            b.createdAt.localeCompare(a.createdAt),
-        ),
+        .sort(compareTransactionsNewest),
     [data, selectedMonth, query, type, category],
   );
   const totals = items.reduce(
@@ -1135,6 +1168,7 @@ function Analytics({
               <Tooltip
                 contentStyle={tooltipStyle}
                 formatter={(value) => money(Number(value))}
+                cursor={{ fill: "rgba(139, 92, 246, 0.16)" }}
               />
               <Bar
                 dataKey="value"
@@ -1592,6 +1626,7 @@ function SettingsPage({
   onLogout: () => void;
 }) {
   const importRef = useRef<HTMLInputElement>(null);
+  const csvImportRef = useRef<HTMLInputElement>(null);
   const exportData = () => {
     const url = URL.createObjectURL(
       new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }),
@@ -1622,6 +1657,16 @@ function SettingsPage({
             <i>
               <strong>Импорт резервной копии</strong>
               <small>Заменить данные на всех устройствах из JSON-файла</small>
+            </i>
+          </span>
+          <ArrowRight />
+        </button>
+        <button onClick={() => csvImportRef.current?.click()}>
+          <span>
+            <FileUp />
+            <i>
+              <strong>Импорт операций из Zen CSV</strong>
+              <small>Заменить операции актуальным экспортом Zen</small>
             </i>
           </span>
           <ArrowRight />
@@ -1660,6 +1705,37 @@ function SettingsPage({
             const value = JSON.parse(await file.text()) as AppData;
             await onData(value);
             event.target.value = "";
+          }}
+        />
+        <input
+          ref={csvImportRef}
+          hidden
+          type="file"
+          accept=".csv,text/csv"
+          onChange={async (event) => {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            try {
+              const imported = importZenCsv(await file.text(), file.name);
+              if (
+                confirm(
+                  `Импортировать ${imported.transactions.length} операций из ${file.name}? Текущие операции будут заменены.`,
+                )
+              )
+                await onData({
+                  ...imported,
+                  budgets: data.budgets,
+                  profile: data.profile,
+                });
+            } catch (error) {
+              alert(
+                error instanceof Error
+                  ? error.message
+                  : "Не удалось импортировать CSV",
+              );
+            } finally {
+              event.target.value = "";
+            }
           }}
         />
       </section>
@@ -1710,6 +1786,26 @@ export default function App() {
   const [mobileMenu, setMobileMenu] = useState(false);
   const [globalSearch, setGlobalSearch] = useState(false);
   const [balanceAccount, setBalanceAccount] = useState<Account | undefined>();
+  useEffect(() => {
+    const modalOpen =
+      transaction !== undefined || globalSearch || Boolean(balanceAccount);
+    if (!modalOpen) return;
+    const scrollY = window.scrollY;
+    const { overflow, position, top, width, touchAction } = document.body.style;
+    document.body.style.overflow = "hidden";
+    document.body.style.position = "fixed";
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = "100%";
+    document.body.style.touchAction = "none";
+    return () => {
+      document.body.style.overflow = overflow;
+      document.body.style.position = position;
+      document.body.style.top = top;
+      document.body.style.width = width;
+      document.body.style.touchAction = touchAction;
+      window.scrollTo({ top: scrollY, behavior: "auto" });
+    };
+  }, [transaction, globalSearch, balanceAccount]);
   useEffect(() => {
     return observeAuth((currentUser) => {
       setUser(currentUser);

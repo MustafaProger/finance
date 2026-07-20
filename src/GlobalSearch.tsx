@@ -4,6 +4,7 @@ import type { AppData, Transaction } from "./types";
 import {
   amountOf,
   categoryOf,
+  compareTransactionsNewest,
   currencyOf,
   dateLabel,
   money,
@@ -39,7 +40,7 @@ export function GlobalSearch({
             .includes(normalized),
         ),
       )
-      .sort((a, b) => b.date.localeCompare(a.date))
+      .sort(compareTransactionsNewest)
       .slice(0, 30);
   }, [data, query]);
   return (

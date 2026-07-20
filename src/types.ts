@@ -44,6 +44,14 @@ export interface Budget {
   id: string;
   categoryId: string;
   limit: number;
+  items?: BudgetItem[];
+}
+
+export interface BudgetItem {
+  id: string;
+  name: string;
+  amount: number;
+  completed: boolean;
 }
 
 export interface AppData {

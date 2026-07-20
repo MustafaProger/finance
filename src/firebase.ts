@@ -71,6 +71,8 @@ export async function login(
   if (!auth) throw new Error("Firebase не настроен");
   await setPersistence(
     auth,
+    // Сессия пользователя должна переживать закрытие браузера и повторный
+    // запуск приложения на этом устройстве. Выход выполняется только явно.
     remember ? browserLocalPersistence : browserSessionPersistence,
   );
   return signInWithEmailAndPassword(auth, email.trim(), password);
@@ -98,6 +100,10 @@ export function authErrorMessage(error: unknown) {
     return "Слишком много попыток. Попробуйте немного позже";
   if (code === "auth/configuration-not-found")
     return "В Firebase ещё не включён вход по Email/Password";
+  if (code === "auth/operation-not-allowed")
+    return "В Firebase не включён способ входа Email/Password";
+  if (code === "auth/invalid-api-key" || code === "auth/project-not-found")
+    return "Проверьте настройки Firebase в файле .env";
   if (code === "auth/network-request-failed")
     return "Нет соединения с интернетом";
   return error instanceof Error ? error.message : "Не удалось войти";
