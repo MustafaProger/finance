@@ -2166,6 +2166,50 @@ textarea:focus-visible {
 .budget-items-field {
   gap: 10px;
 }
+.budget-currency-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.budget-currency-picker button {
+  min-width: 64px;
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  color: var(--muted);
+  background: #091321;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+.budget-currency-picker button:hover,
+.budget-currency-picker button.active {
+  border-color: rgba(57, 132, 255, 0.42);
+  color: #eef5ff;
+  background: rgba(57, 132, 255, 0.13);
+}
+.budget-limit-field {
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: #091321;
+}
+.budget-limit-field input {
+  width: 100%;
+  height: 46px;
+  border: 0;
+  outline: 0;
+  color: #eef4ff;
+  background: transparent;
+  font-size: 16px;
+  font-weight: 750;
+}
+.budget-limit-field b {
+  color: var(--muted);
+  font-size: 12px;
+}
 .budget-item-editor-list {
   display: grid;
   gap: 8px;
@@ -2734,6 +2778,9 @@ textarea:focus-visible {
 }
 .budget-account-picker {
   width: min(100%, 470px);
+}
+.budget-writeoff-currency {
+  margin-bottom: 2px;
 }
 .budget-account-list {
   display: grid;

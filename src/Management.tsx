@@ -15,7 +15,6 @@ import {
   accountBalance,
   adjustCurrentBalances,
   categoryOf,
-  categoryStats,
   money,
   monthLabel,
 } from "./format";
@@ -355,6 +354,14 @@ function BudgetEditor({
   const [categoryId, setCategoryId] = useState(
     budget?.categoryId || available[0]?.id || "",
   );
+  const currencies = [...new Set(data.accounts.map((item) => item.currency))];
+  const [currency, setCurrency] = useState(
+    budget?.currency || data.profile.currency || currencies[0] || "RUB",
+  );
+  const [mode, setMode] = useState<"limit" | "plan">(
+    budget?.items?.length ? "plan" : "limit",
+  );
+  const [limit, setLimit] = useState(String(budget?.limit || ""));
   const [items, setItems] = useState<BudgetItem[]>(() =>
     budget?.items?.length
       ? budget.items
@@ -393,17 +400,45 @@ function BudgetEditor({
         },
       ];
     });
+  const selectMode = (value: "limit" | "plan") => {
+    setMode(value);
+    if (value === "plan" && !items.length)
+      setItems([
+        {
+          id: `budget-item-${crypto.randomUUID()}`,
+          name: "",
+          amount: 0,
+          completed: false,
+        },
+      ]);
+  };
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    const limitValue = Number(limit);
     const validItems = items.filter(
       (item) => item.name.trim() && Number(item.amount) > 0,
     );
-    if (!categoryId || !validItems.length) return;
+    if (
+      !categoryId ||
+      (mode === "limit" ? !limitValue || limitValue <= 0 : !validItems.length)
+    )
+      return;
     onSave({
       id: budget?.id || `budget-${crypto.randomUUID()}`,
       categoryId,
-      limit: validItems.reduce((sum, item) => sum + Number(item.amount), 0),
-      items: validItems.map((item) => ({ ...item, name: item.name.trim() })),
+      currency,
+      limit:
+        mode === "limit"
+          ? limitValue
+          : validItems.reduce((sum, item) => sum + Number(item.amount), 0),
+      ...(mode === "plan"
+        ? {
+            items: validItems.map((item) => ({
+              ...item,
+              name: item.name.trim(),
+            })),
+          }
+        : {}),
     });
   };
   return (
@@ -417,7 +452,7 @@ function BudgetEditor({
         <header>
           <div>
             <h2>{budget ? "Изменить бюджет" : "Новый бюджет"}</h2>
-            <p>Соберите список трат — сумма посчитается сама</p>
+            <p>Задайте общий лимит или составьте план покупок</p>
           </div>
           <button type="button" onClick={onClose}>
             <X />
@@ -445,59 +480,112 @@ function BudgetEditor({
             ))}
           </div>
         </div>
-        <div className="management-field budget-items-field">
-          <span>Плановые траты</span>
-          <div className="budget-item-editor-list">
-            {items.map((item) => (
-              <div className="budget-item-editor" key={item.id}>
-                <input
-                  value={item.name}
-                  onChange={(event) =>
-                    updateItem(item.id, { name: event.target.value })
-                  }
-                  placeholder="Например, ChatGPT"
-                  aria-label="Название траты"
-                />
-                <div className="amount-field">
-                  <input
-                    inputMode="decimal"
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={item.amount || ""}
-                    onChange={(event) =>
-                      updateItem(item.id, {
-                        amount: Number(event.target.value),
-                      })
-                    }
-                    placeholder="0"
-                    aria-label="Сумма траты"
-                  />
-                  <b>₽</b>
-                </div>
-                <button
-                  type="button"
-                  className="danger budget-item-remove"
-                  aria-label={`Удалить ${item.name || "трату"}`}
-                  onClick={() =>
-                    setItems((current) =>
-                      current.filter((entry) => entry.id !== item.id),
-                    )
-                  }
-                >
-                  <Trash2 />
-                </button>
-              </div>
-            ))}
-          </div>
-          <button type="button" className="budget-item-add" onClick={addItem}>
-            <Plus /> Добавить трату
-          </button>
-          <div className="budget-plan-total">
-            <span>Бюджет на месяц</span>
-            <strong>{money(total)}</strong>
+        <div className="management-field">
+          <span>Формат бюджета</span>
+          <div className="segmented">
+            <button
+              type="button"
+              className={mode === "limit" ? "active" : ""}
+              onClick={() => selectMode("limit")}
+            >
+              Общий лимит
+            </button>
+            <button
+              type="button"
+              className={mode === "plan" ? "active" : ""}
+              onClick={() => selectMode("plan")}
+            >
+              План покупок
+            </button>
           </div>
         </div>
+        <div className="management-field">
+          <span>Валюта</span>
+          <div className="budget-currency-picker">
+            {currencies.map((value) => (
+              <button
+                type="button"
+                key={value}
+                className={currency === value ? "active" : ""}
+                onClick={() => setCurrency(value)}
+              >
+                {value}
+              </button>
+            ))}
+          </div>
+        </div>
+        {mode === "limit" ? (
+          <label className="management-field">
+            <span>Лимит на месяц</span>
+            <div className="amount-field budget-limit-field">
+              <input
+                autoFocus
+                inputMode="decimal"
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={limit}
+                onChange={(event) => setLimit(event.target.value)}
+                placeholder="0"
+              />
+              <b>{currency}</b>
+            </div>
+          </label>
+        ) : (
+          <div className="management-field budget-items-field">
+            <span>Плановые траты</span>
+            <div className="budget-item-editor-list">
+              {items.map((item) => (
+                <div className="budget-item-editor" key={item.id}>
+                  <input
+                    value={item.name}
+                    onChange={(event) =>
+                      updateItem(item.id, { name: event.target.value })
+                    }
+                    placeholder="Например, ChatGPT"
+                    aria-label="Название траты"
+                  />
+                  <div className="amount-field">
+                    <input
+                      inputMode="decimal"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={item.amount || ""}
+                      onChange={(event) =>
+                        updateItem(item.id, {
+                          amount: Number(event.target.value),
+                        })
+                      }
+                      placeholder="0"
+                      aria-label="Сумма траты"
+                    />
+                    <b>{currency}</b>
+                  </div>
+                  <button
+                    type="button"
+                    className="danger budget-item-remove"
+                    aria-label={`Удалить ${item.name || "трату"}`}
+                    onClick={() =>
+                      setItems((current) =>
+                        current.filter((entry) => entry.id !== item.id),
+                      )
+                    }
+                  >
+                    <Trash2 />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button type="button" className="budget-item-add" onClick={addItem}>
+              <Plus /> Добавить трату
+            </button>
+            <div className="budget-plan-total">
+              <span>Бюджет на месяц</span>
+              <strong>{money(total, currency)}</strong>
+            </div>
+          </div>
+        )}
         <button className="management-submit" type="submit">
           {budget ? "Сохранить бюджет" : "Добавить бюджет"}
         </button>
@@ -508,15 +596,27 @@ function BudgetEditor({
 
 function BudgetAccountPicker({
   data,
+  budget,
   item,
   onClose,
   onSelect,
 }: {
   data: AppData;
+  budget: Budget;
   item: BudgetItem;
   onClose: () => void;
-  onSelect: (accountId: string) => void;
+  onSelect: (accountId: string, currency: string) => void;
 }) {
+  const currencies = [...new Set(data.accounts.map((entry) => entry.currency))];
+  const initialCurrency = budget.currency || data.profile.currency || "RUB";
+  const [currency, setCurrency] = useState(
+    currencies.includes(initialCurrency)
+      ? initialCurrency
+      : currencies[0] || initialCurrency,
+  );
+  const accounts = data.accounts.filter(
+    (account) => account.currency === currency,
+  );
   return (
     <div
       className="modal-backdrop"
@@ -532,19 +632,34 @@ function BudgetAccountPicker({
           <div>
             <h2 id="budget-account-title">Откуда списались деньги?</h2>
             <p>
-              {item.name} · {money(item.amount)}
+              {item.name} · {money(item.amount, currency)}
             </p>
           </div>
           <button type="button" onClick={onClose} aria-label="Закрыть">
             <X />
           </button>
         </header>
+        <div className="management-field budget-writeoff-currency">
+          <span>Валюта списания</span>
+          <div className="budget-currency-picker">
+            {currencies.map((value) => (
+              <button
+                type="button"
+                key={value}
+                className={currency === value ? "active" : ""}
+                onClick={() => setCurrency(value)}
+              >
+                {value}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="budget-account-list">
-          {data.accounts.map((account) => (
+          {accounts.map((account) => (
             <button
               type="button"
               key={account.id}
-              onClick={() => onSelect(account.id)}
+              onClick={() => onSelect(account.id, currency)}
             >
               <i style={{ "--account": account.color } as React.CSSProperties}>
                 {account.type === "cash" ? <WalletCards /> : <CreditCard />}
@@ -553,13 +668,15 @@ function BudgetAccountPicker({
                 <strong>{account.name}</strong>
                 <small>{account.currency}</small>
               </span>
-              <b>{money(accountBalance(data, account.name))}</b>
+              <b>
+                {money(accountBalance(data, account.name), account.currency)}
+              </b>
             </button>
           ))}
         </div>
-        {!data.accounts.length ? (
+        {!accounts.length ? (
           <p className="budget-account-empty">
-            Сначала добавьте хотя бы один счёт.
+            Нет счетов в валюте {currency}.
           </p>
         ) : null}
       </section>
@@ -581,9 +698,20 @@ export function BudgetsPage({
     budgetId: string;
     itemId: string;
   }>();
-  const spent = new Map(
-    categoryStats(data, selectedMonth).map((item) => [item.id, item.value]),
-  );
+  const budgetCurrency = (budget: Budget) =>
+    budget.currency || data.profile.currency || "RUB";
+  const transactionsSpent = (budget: Budget) => {
+    const currency = budgetCurrency(budget);
+    return data.transactions
+      .filter(
+        (item) =>
+          item.date.startsWith(selectedMonth) &&
+          item.type === "expense" &&
+          item.categoryId === budget.categoryId &&
+          item.fromCurrency === currency,
+      )
+      .reduce((sum, item) => sum + Number(item.fromAmount || 0), 0);
+  };
   const monthTransactionIds = new Set(
     data.transactions
       .filter((item) => item.date.startsWith(selectedMonth))
@@ -615,16 +743,23 @@ export function BudgetsPage({
       budgets: data.budgets.filter((item) => item.id !== budget.id),
     });
   };
-  const totalLimit = data.budgets.reduce(
-    (sum, item) => sum + budgetTotal(item),
-    0,
-  );
-  const totalSpent = data.budgets.reduce(
-    (sum, item) =>
-      sum +
-      (spent.get(item.categoryId) || 0) +
-      completedBudgetTotal(item, monthTransactionIds),
-    0,
+  const totals = [...new Set(data.budgets.map(budgetCurrency))].map(
+    (currency) => {
+      const budgets = data.budgets.filter(
+        (budget) => budgetCurrency(budget) === currency,
+      );
+      return {
+        currency,
+        limit: budgets.reduce((sum, budget) => sum + budgetTotal(budget), 0),
+        spent: budgets.reduce(
+          (sum, budget) =>
+            sum +
+            transactionsSpent(budget) +
+            completedBudgetTotal(budget, monthTransactionIds),
+          0,
+        ),
+      };
+    },
   );
   const requestToggleItem = async (budgetId: string, itemId: string) => {
     const budget = data.budgets.find((entry) => entry.id === budgetId);
@@ -651,7 +786,7 @@ export function BudgetsPage({
     delete nextItem.transactionId;
     await onChange(next);
   };
-  const completeItem = async (accountId: string) => {
+  const completeItem = async (accountId: string, currency: string) => {
     if (!pendingItem) return;
     const next = structuredClone(data);
     const budget = next.budgets.find(
@@ -661,7 +796,8 @@ export function BudgetsPage({
       (entry) => entry.id === pendingItem.itemId,
     );
     const account = next.accounts.find((entry) => entry.id === accountId);
-    if (!budget || !item || !account) return;
+    if (!budget || !item || !account || account.currency !== currency) return;
+    budget.currency = currency;
     const category = categoryOf(next, budget.categoryId);
     const transactionId = `budget-operation-${crypto.randomUUID()}`;
     const currentMonth = new Date().toISOString().slice(0, 7);
@@ -726,7 +862,14 @@ export function BudgetsPage({
           <div>
             <h2>Бюджеты на {monthLabel(selectedMonth).toLowerCase()}</h2>
             <p>
-              {money(totalSpent)} потрачено из {money(totalLimit)}
+              {totals.length
+                ? totals
+                    .map(
+                      (item) =>
+                        `${money(item.spent, item.currency)} потрачено из ${money(item.limit, item.currency)}`,
+                    )
+                    .join(" · ")
+                : "Добавьте первый лимит для нужной категории"}
             </p>
           </div>
         </div>
@@ -737,7 +880,8 @@ export function BudgetsPage({
       <div className="budget-grid">
         {data.budgets.map((budget) => {
           const category = categoryOf(data, budget.categoryId);
-          const transactionsTotal = spent.get(budget.categoryId) || 0;
+          const currency = budgetCurrency(budget);
+          const transactionsTotal = transactionsSpent(budget);
           const completedTotal = completedBudgetTotal(
             budget,
             monthTransactionIds,
@@ -785,7 +929,8 @@ export function BudgetsPage({
                 </div>
               </div>
               <b>
-                {money(value)} <small>из {money(limit)}</small>
+                {money(value, currency)}{" "}
+                <small>из {money(limit, currency)}</small>
               </b>
               <div className="budget-progress">
                 <i
@@ -799,8 +944,8 @@ export function BudgetsPage({
                 <span>{ratio.toFixed(0)}% использовано</span>
                 <strong>
                   {ratio <= 100
-                    ? `Осталось ${money(limit - value)}`
-                    : `Превышено ${money(value - limit)}`}
+                    ? `Осталось ${money(limit - value, currency)}`
+                    : `Превышено ${money(value - limit, currency)}`}
                 </strong>
               </footer>
               {budget.items?.length ? (
@@ -808,7 +953,7 @@ export function BudgetsPage({
                   <div className="budget-checklist-head">
                     <span>План</span>
                     <div>
-                      <small>Отмечено {money(markedTotal)}</small>
+                      <small>Отмечено {money(markedTotal, currency)}</small>
                       {markedTotal > 0 ? (
                         <button
                           type="button"
@@ -834,14 +979,15 @@ export function BudgetsPage({
                           <Check />
                         </i>
                         <span>{item.name}</span>
-                        <b>{money(item.amount)}</b>
+                        <b>{money(item.amount, currency)}</b>
                       </label>
                     );
                   })}
                   {transactionsTotal > 0 && (
                     <small className="budget-operations-note">
-                      По операциям потрачено {money(transactionsTotal)}. В итог
-                      также входят пункты без созданной операции.
+                      По операциям потрачено{" "}
+                      {money(transactionsTotal, currency)}. В итог также входят
+                      пункты без созданной операции.
                     </small>
                   )}
                 </div>
@@ -868,9 +1014,14 @@ export function BudgetsPage({
       {pendingItem && pendingBudgetItem ? (
         <BudgetAccountPicker
           data={data}
+          budget={data.budgets.find(
+            (entry) => entry.id === pendingItem.budgetId,
+          )!}
           item={pendingBudgetItem}
           onClose={() => setPendingItem(undefined)}
-          onSelect={(accountId) => void completeItem(accountId)}
+          onSelect={(accountId, currency) =>
+            void completeItem(accountId, currency)
+          }
         />
       ) : null}
     </div>

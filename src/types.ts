@@ -44,6 +44,7 @@ export interface Budget {
   id: string;
   categoryId: string;
   limit: number;
+  currency?: string;
   items?: BudgetItem[];
 }
 
