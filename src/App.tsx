@@ -17,7 +17,6 @@ import {
   Check,
   ChevronDown,
   CircleDollarSign,
-  Clock3,
   Cloud,
   CloudOff,
   Download,
@@ -30,7 +29,6 @@ import {
   LoaderCircle,
   LockKeyhole,
   LogOut,
-  MapPin,
   Menu,
   MessageCircle,
   MoreHorizontal,
@@ -51,8 +49,6 @@ import {
 import {
   Area,
   AreaChart,
-  Bar,
-  BarChart,
   CartesianGrid,
   Cell,
   Pie,
@@ -104,14 +100,16 @@ import {
 } from "./firebase";
 import { BudgetsPage, CategoriesPage } from "./Management";
 import { GlobalSearch } from "./GlobalSearch";
+import { SavingsPage } from "./Savings";
 import { importZenCsv } from "./csvImport";
 
 const routes: { id: Route; label: string; icon: typeof BarChart3 }[] = [
   { id: "overview", label: "Обзор", icon: WalletCards },
   { id: "transactions", label: "Операции", icon: List },
-  { id: "budgets", label: "Бюджеты", icon: Target },
-  { id: "categories", label: "Категории", icon: Tag },
   { id: "analytics", label: "Аналитика", icon: BarChart3 },
+  { id: "budgets", label: "Бюджеты", icon: Target },
+  { id: "savings", label: "Накопления", icon: CircleDollarSign },
+  { id: "categories", label: "Категории", icon: Tag },
   // Временно отключено для пользователей:
   // { id: "assistant", label: "GPT-анализ", icon: Sparkles },
   { id: "accounts", label: "Счета", icon: Landmark },
@@ -465,7 +463,10 @@ function Donut({
                 paddingAngle={visibleCategories.length ? 2 : 0}
                 cornerRadius={8}
                 stroke="none"
-                isAnimationActive={false}
+                isAnimationActive
+                animationBegin={0}
+                animationDuration={700}
+                animationEasing="ease-in-out"
               >
                 {chartCategories.map((item) => (
                   <Cell key={item.id} fill={item.color} />
@@ -687,6 +688,9 @@ function TransactionModal({
   onDelete,
 }: TransactionModalProps) {
   const initialType = transaction?.type || "expense";
+  const latestAccount = [...data.transactions]
+    .filter((item) => item.type === initialType)
+    .sort(compareTransactionsNewest)[0]?.fromAccount;
   const [type, setType] = useState<TransactionType>(initialType);
   const [amount, setAmount] = useState(
     String(transaction ? amountOf(transaction) : ""),
@@ -697,7 +701,11 @@ function TransactionModal({
       "",
   );
   const [fromAccount, setFromAccount] = useState(
-    transaction?.fromAccount || data.accounts[0]?.name || "",
+    transaction?.fromAccount ||
+      (data.accounts.some((item) => item.name === latestAccount)
+        ? latestAccount
+        : data.accounts[0]?.name) ||
+      "",
   );
   const [toAccount, setToAccount] = useState(
     transaction?.toAccount || data.accounts[0]?.name || "",
@@ -705,15 +713,12 @@ function TransactionModal({
   const [date, setDate] = useState(
     transaction?.date || new Date().toISOString().slice(0, 10),
   );
-  const [location, setLocation] = useState(transaction?.location || "");
   const [comment, setComment] = useState(transaction?.comment || "");
-  const [tagsText, setTagsText] = useState(
-    transaction?.tags?.map((item) => `#${item}`).join(" ") || "",
-  );
   const [destinationAmount, setDestinationAmount] = useState(
     transaction?.type === "transfer" ? String(transaction.toAmount) : "",
   );
-  const [repeat, setRepeat] = useState(Boolean(transaction?.repeat));
+  const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
+  const [pickedCategoryId, setPickedCategoryId] = useState("");
   const sourceAccount =
     data.accounts.find((item) => item.name === fromAccount) || data.accounts[0];
   const transferAccounts = data.accounts
@@ -761,14 +766,6 @@ function TransactionModal({
         : value;
     if (type === "transfer" && (!receivedValue || receivedValue <= 0)) return;
     const category = categoryOf(data, categoryId);
-    const tags = [
-      ...new Set(
-        tagsText
-          .split(/[#,;\s]+/)
-          .map((item) => item.trim().toLowerCase())
-          .filter(Boolean),
-      ),
-    ];
     onSave({
       id: transaction?.id || `local-${crypto.randomUUID()}`,
       type,
@@ -786,11 +783,20 @@ function TransactionModal({
       toCurrency: type === "transfer" ? destination!.currency : source.currency,
       createdAt: transaction?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      tags,
-      location: location.trim(),
-      repeat,
+      tags: transaction?.tags,
+      location: transaction?.location,
+      repeat: transaction?.repeat,
     });
   };
+  const pickCategory = (id: string) => {
+    setCategoryId(id);
+    setPickedCategoryId(id);
+    window.setTimeout(() => {
+      setCategoryPickerOpen(false);
+      setPickedCategoryId("");
+    }, 180);
+  };
+  const selectedCategory = categoryOf(data, categoryId);
   return (
     <div
       className="modal-backdrop"
@@ -844,25 +850,29 @@ function TransactionModal({
         {type !== "transfer" && (
           <div className="category-picker">
             <span className="field-caption">Категория</span>
-            <div className="category-scroll">
-              {categories.map((category) => (
-                <button
-                  type="button"
-                  className={category.id === categoryId ? "active" : ""}
-                  key={category.id}
-                  onClick={() => setCategoryId(category.id)}
-                >
-                  <i
-                    style={
-                      { "--category": category.color } as React.CSSProperties
-                    }
-                  >
-                    <CategoryGlyph name={category.icon} />
-                  </i>
-                  <span>{category.name}</span>
-                </button>
-              ))}
-            </div>
+            <button
+              type="button"
+              className="category-picker-trigger"
+              aria-haspopup="dialog"
+              onClick={() => setCategoryPickerOpen(true)}
+            >
+              <i
+                style={
+                  {
+                    "--category": selectedCategory.color,
+                  } as React.CSSProperties
+                }
+              >
+                <CategoryGlyph name={selectedCategory.icon} />
+              </i>
+              <span>
+                <strong>{selectedCategory.name}</strong>
+                <small>Нажмите, чтобы открыть все категории</small>
+              </span>
+              <span className="category-picker-action">
+                Все категории <MoreHorizontal size={18} />
+              </span>
+            </button>
           </div>
         )}
         <div className="sheet-fields">
@@ -928,40 +938,12 @@ function TransactionModal({
             />
           </label>
           <label className="sheet-row">
-            <MapPin size={20} />
-            <span>Место</span>
-            <input
-              value={location}
-              onChange={(event) => setLocation(event.target.value)}
-              placeholder="Необязательно"
-            />
-          </label>
-          <label className="sheet-row">
             <MessageCircle size={20} />
             <span>Комментарий</span>
             <input
               value={comment}
               onChange={(event) => setComment(event.target.value)}
               placeholder="Необязательно"
-            />
-          </label>
-          <label className="sheet-row">
-            <Tag size={20} />
-            <span>Метки</span>
-            <input
-              value={tagsText}
-              onChange={(event) => setTagsText(event.target.value)}
-              placeholder="#работа #подписки"
-            />
-          </label>
-          <label className="sheet-row">
-            <Clock3 size={20} />
-            <span>Повторять операцию</span>
-            <input
-              className="switch"
-              type="checkbox"
-              checked={repeat}
-              onChange={(event) => setRepeat(event.target.checked)}
             />
           </label>
         </div>
@@ -978,6 +960,58 @@ function TransactionModal({
           Сохранить операцию
         </button>
       </section>
+      {categoryPickerOpen && (
+        <div
+          className="category-dialog-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget)
+              setCategoryPickerOpen(false);
+          }}
+        >
+          <section
+            className="category-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="category-dialog-title"
+          >
+            <header>
+              <div>
+                <h2 id="category-dialog-title">Все категории</h2>
+                <p>Выберите категорию операции</p>
+              </div>
+              <button
+                type="button"
+                className="sheet-icon"
+                aria-label="Закрыть категории"
+                onClick={() => setCategoryPickerOpen(false)}
+              >
+                <X size={20} />
+              </button>
+            </header>
+            <div className="category-dialog-grid">
+              {categories.map((category) => (
+                <button
+                  type="button"
+                  className={`${category.id === categoryId ? "active" : ""} ${pickedCategoryId === category.id ? "picked" : ""}`}
+                  aria-pressed={category.id === categoryId}
+                  key={category.id}
+                  onClick={() => pickCategory(category.id)}
+                >
+                  <i
+                    style={
+                      { "--category": category.color } as React.CSSProperties
+                    }
+                  >
+                    <CategoryGlyph name={category.icon} />
+                  </i>
+                  <span>{category.name}</span>
+                  <Check size={16} />
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
@@ -1016,6 +1050,7 @@ function Overview({
   const stats = statsFor(data, selectedMonth);
   const net = stats.income - stats.expense;
   const recent = [...data.transactions]
+    .filter((item) => item.date.startsWith(selectedMonth))
     .sort(compareTransactionsNewest)
     .slice(0, 6);
   const totalBalance = data.accounts
@@ -1043,7 +1078,7 @@ function Overview({
           </span>
           <span>
             <CircleDollarSign />
-            Результат <b>{money(net)}</b>
+            Остаток <b>{money(net)}</b>
           </span>
         </div>
       </section>
@@ -1105,12 +1140,20 @@ function Transactions({
   const [query, setQuery] = useState("");
   const [type, setType] = useState("all");
   const [category, setCategory] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  useEffect(() => {
+    setDateFrom("");
+    setDateTo("");
+  }, [selectedMonth]);
   const items = useMemo(
     () =>
       [...data.transactions]
         .filter((item) => item.date.startsWith(selectedMonth))
         .filter((item) => type === "all" || item.type === type)
         .filter((item) => category === "all" || item.categoryId === category)
+        .filter((item) => !dateFrom || item.date >= dateFrom)
+        .filter((item) => !dateTo || item.date <= dateTo)
         .filter(
           (item) =>
             !query.trim() ||
@@ -1129,7 +1172,7 @@ function Transactions({
             ),
         )
         .sort(compareTransactionsNewest),
-    [data, selectedMonth, query, type, category],
+    [data, selectedMonth, query, type, category, dateFrom, dateTo],
   );
   const totals = items.reduce(
     (value, item) => {
@@ -1141,6 +1184,21 @@ function Transactions({
     },
     { income: 0, expense: 0 },
   );
+  const groupedItems = useMemo(() => {
+    const byDate = new Map<string, Transaction[]>();
+    [...items]
+      .sort(
+        (left, right) =>
+          right.date.localeCompare(left.date) ||
+          compareTransactionsNewest(left, right),
+      )
+      .forEach((item) => {
+        const group = byDate.get(item.date) || [];
+        group.push(item);
+        byDate.set(item.date, group);
+      });
+    return [...byDate.entries()];
+  }, [items]);
   return (
     <div className="page-stack">
       <section className="surface filters-card">
@@ -1175,6 +1233,25 @@ function Transactions({
                 .map((item) => ({ value: item.id, label: item.name })),
             ]}
           />
+          <label className="date-filter">
+            <span>С даты</span>
+            <input
+              type="date"
+              value={dateFrom}
+              min={`${selectedMonth}-01`}
+              max={dateTo || undefined}
+              onInput={(event) => setDateFrom(event.currentTarget.value)}
+            />
+          </label>
+          <label className="date-filter">
+            <span>По дату</span>
+            <input
+              type="date"
+              value={dateTo}
+              min={dateFrom || `${selectedMonth}-01`}
+              onInput={(event) => setDateTo(event.currentTarget.value)}
+            />
+          </label>
         </div>
         <div className="stats-row">
           <StatCard
@@ -1208,13 +1285,21 @@ function Transactions({
         </div>
         <div className="operations-list full">
           {items.length ? (
-            items.map((item) => (
-              <OperationRow
-                data={data}
-                item={item}
-                onClick={() => edit(item)}
-                key={item.id}
-              />
+            groupedItems.map(([date, dateItems]) => (
+              <section className="operation-date-group" key={date}>
+                <header>
+                  <strong>{dateLabel(date, true)}</strong>
+                  <span>{dateItems.length} оп.</span>
+                </header>
+                {dateItems.map((item) => (
+                  <OperationRow
+                    data={data}
+                    item={item}
+                    onClick={() => edit(item)}
+                    key={item.id}
+                  />
+                ))}
+              </section>
             ))
           ) : (
             <div className="empty">
@@ -1249,22 +1334,6 @@ function Analytics({
       item.type === "expense" &&
       item.fromCurrency === "RUB",
   );
-  const daily = [...new Map(expenses.map((item) => [item.date, 0])).keys()]
-    .sort()
-    .map((date) => ({
-      date: dateLabel(date),
-      value: expenses
-        .filter((item) => item.date === date)
-        .reduce((sum, item) => sum + item.fromAmount, 0),
-    }));
-  const weekdays = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"].map(
-    (day, index) => ({
-      day,
-      value: expenses
-        .filter((item) => new Date(`${item.date}T12:00:00`).getDay() === index)
-        .reduce((sum, item) => sum + item.fromAmount, 0),
-    }),
-  );
   const incomeCategories = categoryStats(data, selectedMonth, "income");
   const expenseCategories = categoryStats(data, selectedMonth);
   const top = expenseCategories[0];
@@ -1293,7 +1362,7 @@ function Analytics({
           icon={<ArrowDownRight />}
         />
         <StatCard
-          label="Результат"
+          label="Остаток"
           value={money(net)}
           tone={net >= 0 ? "income" : "expense"}
           icon={<CircleDollarSign />}
@@ -1328,198 +1397,174 @@ function Analytics({
           period={cashflowPeriod}
         />
       </section>
-      <section className="surface">
-        <div className="section-heading">
-          <div>
-            <h2>Расходы по дням</h2>
-            <p>Когда траты были максимальными</p>
-          </div>
-        </div>
-        <div className="small-chart">
-          <ResponsiveContainer
-            width="100%"
-            height="100%"
-            minWidth={0}
-            minHeight={0}
-            initialDimension={{ width: 500, height: 210 }}
-          >
-            <AreaChart data={daily}>
-              <defs>
-                <linearGradient id="dailyFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0" stopColor="#60a5fa" stopOpacity={0.3} />
-                  <stop offset="1" stopColor="#60a5fa" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid vertical={false} stroke="rgba(148,163,184,.1)" />
-              <XAxis dataKey="date" hide />
-              <YAxis hide />
-              <Tooltip
-                contentStyle={tooltipStyle}
-                formatter={(value) => money(Number(value))}
-              />
-              <Area
-                dataKey="value"
-                name="Расходы"
-                type="monotone"
-                stroke="#60a5fa"
-                strokeWidth={3}
-                fill="url(#dailyFill)"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </section>
-      <section className="surface">
-        <div className="section-heading">
-          <div>
-            <h2>Расходы по дням недели</h2>
-            <p>Поведенческий ритм месяца</p>
-          </div>
-        </div>
-        <div className="small-chart">
-          <ResponsiveContainer
-            width="100%"
-            height="100%"
-            minWidth={0}
-            minHeight={0}
-            initialDimension={{ width: 500, height: 210 }}
-          >
-            <BarChart data={weekdays}>
-              <XAxis
-                dataKey="day"
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: "#8490a5" }}
-              />
-              <YAxis hide />
-              <Tooltip
-                contentStyle={tooltipStyle}
-                formatter={(value) => money(Number(value))}
-                cursor={{ fill: "rgba(139, 92, 246, 0.16)" }}
-              />
-              <Bar
-                dataKey="value"
-                name="Расходы"
-                fill="#8b5cf6"
-                radius={[8, 8, 8, 8]}
-              />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </section>
-      <section className="surface analytics-structure">
-        <div className="section-heading">
-          <div>
-            <h2>Категории расходов</h2>
-            <p>{monthLabel(selectedMonth)}</p>
-          </div>
-        </div>
-        <Donut data={data} selectedMonth={selectedMonth} />
-      </section>
-      <section className="surface insights-card">
-        <div className="section-heading">
-          <div>
-            <h2>Финансовые наблюдения</h2>
-            <p>Расчёт на основе ваших операций</p>
-          </div>
-          <Sparkles size={21} />
-        </div>
-        <div className="insights">
-          <article>
-            <Target />
+      <div className="analytics-column">
+        <section className="surface month-comparison">
+          <div className="section-heading">
             <div>
-              <strong>
-                {savingsRate >= 20
-                  ? "Здоровый запас"
-                  : "Запас требует внимания"}
-              </strong>
-              <span>
-                Норма сбережений {savingsRate.toFixed(0)}%. Ориентир 20% полезен
-                как отправная точка, но зависит от ваших целей.
-              </span>
+              <h2>Сравнение с прошлым месяцем</h2>
+              <p>
+                {monthLabel(selectedMonth)} и{" "}
+                {monthLabel(prevMonth(selectedMonth)).toLowerCase()}
+              </p>
             </div>
-          </article>
-          <article>
-            <BarChart3 />
-            <div>
-              <strong>
-                Расходы {change > 0 ? "выросли" : "снизились"} на{" "}
-                {Math.abs(change).toFixed(0)}%
-              </strong>
-              <span>
-                Сравнение с {monthLabel(prevMonth(selectedMonth)).toLowerCase()}
-                .
-              </span>
-            </div>
-          </article>
-          <article>
-            <Sparkles />
-            <div>
-              <strong>
-                {top
-                  ? `Главная категория — ${top.name}`
-                  : "Недостаточно данных"}
-              </strong>
-              <span>
-                {top
-                  ? `${money(top.value)} · ${stats.expense ? Math.round((top.value / stats.expense) * 100) : 0}% всех расходов.`
-                  : "Добавьте операции, чтобы получить наблюдения."}
-              </span>
-            </div>
-          </article>
-          <article>
-            <CircleDollarSign />
-            <div>
-              <strong>
-                Средняя покупка —{" "}
-                {money(expenses.length ? stats.expense / expenses.length : 0)}
-              </strong>
-              <span>На основе {expenses.length} расходных операций.</span>
-            </div>
-          </article>
-        </div>
-      </section>
-      <section className="surface top-expenses">
-        <div className="section-heading">
-          <div>
-            <h2>Крупнейшие расходы</h2>
-            <p>Операции, сильнее всего повлиявшие на месяц</p>
           </div>
-        </div>
-        <div className="operations-list">
-          {largest.map((item) => (
-            <OperationRow
-              key={item.id}
-              data={data}
-              item={item}
-              onClick={() => edit(item)}
-            />
-          ))}
-        </div>
-      </section>
-      <section className="surface income-sources">
-        <div className="section-heading">
-          <div>
-            <h2>Источники дохода</h2>
-            <p>Распределение поступлений</p>
+          <div className="comparison-list">
+            {[
+              {
+                label: "Доходы",
+                current: stats.income,
+                old: previous.income,
+                tone: "income",
+              },
+              {
+                label: "Расходы",
+                current: stats.expense,
+                old: previous.expense,
+                tone: "expense",
+              },
+              {
+                label: "Остаток",
+                current: net,
+                old: previous.income - previous.expense,
+                tone: net >= 0 ? "income" : "expense",
+              },
+            ].map((item) => {
+              const delta = item.old
+                ? ((item.current - item.old) / Math.abs(item.old)) * 100
+                : 0;
+              return (
+                <div className={item.tone} key={item.label}>
+                  <span>
+                    {item.label}
+                    <small>было {money(item.old)}</small>
+                  </span>
+                  <strong>
+                    {money(item.current)}
+                    <small>
+                      {item.old
+                        ? `${delta >= 0 ? "+" : ""}${delta.toFixed(0)}%`
+                        : "нет базы"}
+                    </small>
+                  </strong>
+                </div>
+              );
+            })}
           </div>
-        </div>
-        <div className="rank-list">
-          {incomeCategories.length ? (
-            incomeCategories.map((item) => (
-              <div key={item.id}>
-                <i style={{ background: item.color }} />
-                <span>{item.name}</span>
-                <b>{money(item.value)}</b>
+        </section>
+        <section className="surface insights-card">
+          <div className="section-heading">
+            <div>
+              <h2>Финансовые наблюдения</h2>
+              <p>Расчёт на основе ваших операций</p>
+            </div>
+            <Sparkles size={21} />
+          </div>
+          <div className="insights">
+            <article>
+              <Target />
+              <div>
+                <strong>
+                  {savingsRate >= 20
+                    ? "Здоровый запас"
+                    : "Запас требует внимания"}
+                </strong>
+                <span>
+                  Норма сбережений {savingsRate.toFixed(0)}%. Ориентир 20%
+                  полезен как отправная точка, но зависит от ваших целей.
+                </span>
               </div>
-            ))
-          ) : (
-            <span className="muted">Доходов в этом месяце нет</span>
-          )}
-        </div>
-      </section>
+            </article>
+            <article>
+              <BarChart3 />
+              <div>
+                <strong>
+                  Расходы {change > 0 ? "выросли" : "снизились"} на{" "}
+                  {Math.abs(change).toFixed(0)}%
+                </strong>
+                <span>
+                  Сравнение с{" "}
+                  {monthLabel(prevMonth(selectedMonth)).toLowerCase()}.
+                </span>
+              </div>
+            </article>
+            <article>
+              <Sparkles />
+              <div>
+                <strong>
+                  {top
+                    ? `Главная категория — ${top.name}`
+                    : "Недостаточно данных"}
+                </strong>
+                <span>
+                  {top
+                    ? `${money(top.value)} · ${stats.expense ? Math.round((top.value / stats.expense) * 100) : 0}% всех расходов.`
+                    : "Добавьте операции, чтобы получить наблюдения."}
+                </span>
+              </div>
+            </article>
+            <article>
+              <CircleDollarSign />
+              <div>
+                <strong>
+                  Средняя покупка —{" "}
+                  {money(expenses.length ? stats.expense / expenses.length : 0)}
+                </strong>
+                <span>На основе {expenses.length} расходных операций.</span>
+              </div>
+            </article>
+          </div>
+        </section>
+        <section className="surface top-expenses">
+          <div className="section-heading">
+            <div>
+              <h2>Крупнейшие расходы</h2>
+              <p>Операции, сильнее всего повлиявшие на месяц</p>
+            </div>
+          </div>
+          <div className="operations-list">
+            {largest.map((item) => (
+              <OperationRow
+                key={item.id}
+                data={data}
+                item={item}
+                onClick={() => edit(item)}
+              />
+            ))}
+          </div>
+        </section>
+      </div>
+      <div className="analytics-column">
+        <section className="surface analytics-structure">
+          <div className="section-heading">
+            <div>
+              <h2>Категории расходов</h2>
+              <p>{monthLabel(selectedMonth)}</p>
+            </div>
+          </div>
+          <Donut data={data} selectedMonth={selectedMonth} />
+        </section>
+        <section className="surface income-sources">
+          <div className="section-heading">
+            <div>
+              <h2>Источники дохода</h2>
+              <p>Распределение поступлений</p>
+            </div>
+          </div>
+          <div className="rank-list">
+            {incomeCategories.length ? (
+              incomeCategories.map((item) => (
+                <div key={item.id}>
+                  <i style={{ background: item.color }} />
+                  <span>{item.name}</span>
+                  <b>{money(item.value)}</b>
+                </div>
+              ))
+            ) : (
+              <span className="muted">Доходов в этом месяце нет</span>
+            )}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }
@@ -2406,6 +2451,7 @@ export default function App() {
     overview: "Обзор",
     transactions: "Операции",
     budgets: "Бюджеты",
+    savings: "Накопления",
     categories: "Категории",
     analytics: "Аналитика",
     accounts: "Счета",
@@ -2421,7 +2467,9 @@ export default function App() {
     <div className="app">
       <aside className={`sidebar ${mobileMenu ? "mobile-open" : ""}`}>
         <button className="brand" onClick={() => navigate("overview")}>
-          <span>К</span>
+          <span>
+            <img src="/icons/app-icon.svg" alt="" />
+          </span>
           <i>
             <strong>Капитал</strong>
             <small>личные финансы</small>
@@ -2557,6 +2605,9 @@ export default function App() {
               selectedMonth={selectedMonth}
               onChange={saveData}
             />
+          )}{" "}
+          {route === "savings" && (
+            <SavingsPage data={data} onChange={saveData} />
           )}{" "}
           {route === "categories" && (
             <CategoriesPage data={data} onChange={saveData} />

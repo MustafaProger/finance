@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/globalsearch.tsx","./src/management.tsx","./src/csvimport.ts","./src/firebase.ts","./src/format.ts","./src/icons.tsx","./src/main.tsx","./src/storage.ts","./src/types.ts","./src/vite-env.d.ts"],"version":"6.0.3"}
+{"root":["./src/app.tsx","./src/globalsearch.tsx","./src/management.tsx","./src/savings.tsx","./src/csvimport.ts","./src/firebase.ts","./src/format.ts","./src/icons.tsx","./src/main.tsx","./src/storage.ts","./src/types.ts","./src/vite-env.d.ts"],"version":"6.0.3"}

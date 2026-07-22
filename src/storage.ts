@@ -95,6 +95,16 @@ function createEmptyData(name = "Пользователь"): AppData {
     ],
     transactions: [],
     budgets: [],
+    savingsGoals: [],
+  };
+}
+
+function normalizeData(data: AppData): AppData {
+  return {
+    ...data,
+    budgets: data.budgets || [],
+    savingsGoals: data.savingsGoals || [],
+    transactions: data.transactions || [],
   };
 }
 
@@ -208,7 +218,7 @@ export async function connectData(
   };
   const emit = () => {
     if (!metadata || !transactions) return;
-    onData({ ...metadata, transactions });
+    onData(normalizeData({ ...metadata, transactions } as AppData));
     updateState();
   };
   const fail = (error: Error) => {

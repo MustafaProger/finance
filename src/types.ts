@@ -52,6 +52,17 @@ export interface BudgetItem {
   name: string;
   amount: number;
   completed: boolean;
+  transactionId?: string;
+}
+
+export interface SavingsGoal {
+  id: string;
+  name: string;
+  balance: number;
+  target?: number;
+  color: string;
+  icon: string;
+  createdAt: string;
 }
 
 export interface AppData {
@@ -63,12 +74,14 @@ export interface AppData {
   categories: Category[];
   transactions: Transaction[];
   budgets: Budget[];
+  savingsGoals: SavingsGoal[];
 }
 
 export type Route =
   | "overview"
   | "transactions"
   | "budgets"
+  | "savings"
   | "categories"
   | "analytics"
   | "accounts"

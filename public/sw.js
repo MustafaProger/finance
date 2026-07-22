@@ -1,5 +1,11 @@
-const CACHE = "kapital-v4";
-const CORE = ["/", "/manifest.webmanifest", "/icons/app-icon.svg"];
+const CACHE = "kapital-v6";
+const CORE = [
+  "/",
+  "/manifest.webmanifest?v=3",
+  "/icons/app-icon.svg?v=3",
+  "/icons/app-icon-192.png",
+  "/icons/app-icon-512.png",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(CORE)));

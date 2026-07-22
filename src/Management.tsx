@@ -1,7 +1,24 @@
 import { FormEvent, useMemo, useState } from "react";
-import { Check, Pencil, Plus, Tag, Target, Trash2, X } from "lucide-react";
+import {
+  Check,
+  CreditCard,
+  Pencil,
+  Plus,
+  Tag,
+  Target,
+  Trash2,
+  WalletCards,
+  X,
+} from "lucide-react";
 import type { AppData, Budget, BudgetItem, Category } from "./types";
-import { categoryOf, categoryStats, money, monthLabel } from "./format";
+import {
+  accountBalance,
+  adjustCurrentBalances,
+  categoryOf,
+  categoryStats,
+  money,
+  monthLabel,
+} from "./format";
 import { CategoryGlyph } from "./icons";
 
 type ChangeHandler = (data: AppData) => void | Promise<void>;
@@ -10,9 +27,19 @@ const budgetTotal = (budget: Budget) =>
   budget.items?.reduce((sum, item) => sum + Number(item.amount || 0), 0) ||
   Number(budget.limit || 0);
 
-const completedBudgetTotal = (budget: Budget) =>
+const noTransactionIds = new Set<string>();
+
+const completedBudgetTotal = (
+  budget: Budget,
+  transactionIds: Set<string> = noTransactionIds,
+) =>
   budget.items?.reduce(
-    (sum, item) => sum + (item.completed ? Number(item.amount || 0) : 0),
+    (sum, item) =>
+      sum +
+      (item.completed &&
+      (!item.transactionId || !transactionIds.has(item.transactionId))
+        ? Number(item.amount || 0)
+        : 0),
     0,
   ) || 0;
 
@@ -45,6 +72,34 @@ const iconNames = [
   "repeat",
   "coins",
   "trend-up",
+  "plane",
+  "train",
+  "bike",
+  "fuel",
+  "phone",
+  "smartphone",
+  "laptop",
+  "wifi",
+  "receipt",
+  "store",
+  "pizza",
+  "cake",
+  "hotel",
+  "camera",
+  "music",
+  "movie",
+  "game",
+  "gym",
+  "trophy",
+  "education",
+  "clothes",
+  "pet",
+  "baby",
+  "repair",
+  "appliances",
+  "utilities",
+  "vacation",
+  "nature",
 ];
 
 function CategoryEditor({
@@ -451,6 +506,67 @@ function BudgetEditor({
   );
 }
 
+function BudgetAccountPicker({
+  data,
+  item,
+  onClose,
+  onSelect,
+}: {
+  data: AppData;
+  item: BudgetItem;
+  onClose: () => void;
+  onSelect: (accountId: string) => void;
+}) {
+  return (
+    <div
+      className="modal-backdrop"
+      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
+    >
+      <section
+        className="management-modal budget-account-picker"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="budget-account-title"
+      >
+        <header>
+          <div>
+            <h2 id="budget-account-title">Откуда списались деньги?</h2>
+            <p>
+              {item.name} · {money(item.amount)}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Закрыть">
+            <X />
+          </button>
+        </header>
+        <div className="budget-account-list">
+          {data.accounts.map((account) => (
+            <button
+              type="button"
+              key={account.id}
+              onClick={() => onSelect(account.id)}
+            >
+              <i style={{ "--account": account.color } as React.CSSProperties}>
+                {account.type === "cash" ? <WalletCards /> : <CreditCard />}
+              </i>
+              <span>
+                <strong>{account.name}</strong>
+                <small>{account.currency}</small>
+              </span>
+              <b>{money(accountBalance(data, account.name))}</b>
+            </button>
+          ))}
+        </div>
+        {!data.accounts.length ? (
+          <p className="budget-account-empty">
+            Сначала добавьте хотя бы один счёт.
+          </p>
+        ) : null}
+      </section>
+    </div>
+  );
+}
+
 export function BudgetsPage({
   data,
   selectedMonth,
@@ -461,8 +577,17 @@ export function BudgetsPage({
   onChange: ChangeHandler;
 }) {
   const [editing, setEditing] = useState<Budget | null | undefined>(undefined);
+  const [pendingItem, setPendingItem] = useState<{
+    budgetId: string;
+    itemId: string;
+  }>();
   const spent = new Map(
     categoryStats(data, selectedMonth).map((item) => [item.id, item.value]),
+  );
+  const monthTransactionIds = new Set(
+    data.transactions
+      .filter((item) => item.date.startsWith(selectedMonth))
+      .map((item) => item.id),
   );
   const save = async (budget: Budget) => {
     const next = structuredClone(data);
@@ -496,17 +621,101 @@ export function BudgetsPage({
   );
   const totalSpent = data.budgets.reduce(
     (sum, item) =>
-      sum + (spent.get(item.categoryId) || 0) + completedBudgetTotal(item),
+      sum +
+      (spent.get(item.categoryId) || 0) +
+      completedBudgetTotal(item, monthTransactionIds),
     0,
   );
-  const toggleItem = async (budgetId: string, itemId: string) => {
-    const next = structuredClone(data);
-    const budget = next.budgets.find((item) => item.id === budgetId);
+  const requestToggleItem = async (budgetId: string, itemId: string) => {
+    const budget = data.budgets.find((entry) => entry.id === budgetId);
     const item = budget?.items?.find((entry) => entry.id === itemId);
     if (!item) return;
-    item.completed = !item.completed;
+    if (!item.completed) {
+      setPendingItem({ budgetId, itemId });
+      return;
+    }
+    const next = structuredClone(data);
+    const nextBudget = next.budgets.find((entry) => entry.id === budgetId);
+    const nextItem = nextBudget?.items?.find((entry) => entry.id === itemId);
+    if (!nextItem) return;
+    if (nextItem.transactionId) {
+      const transaction = next.transactions.find(
+        (entry) => entry.id === nextItem.transactionId,
+      );
+      if (transaction) adjustCurrentBalances(next, transaction, -1);
+      next.transactions = next.transactions.filter(
+        (entry) => entry.id !== nextItem.transactionId,
+      );
+    }
+    nextItem.completed = false;
+    delete nextItem.transactionId;
     await onChange(next);
   };
+  const completeItem = async (accountId: string) => {
+    if (!pendingItem) return;
+    const next = structuredClone(data);
+    const budget = next.budgets.find(
+      (entry) => entry.id === pendingItem.budgetId,
+    );
+    const item = budget?.items?.find(
+      (entry) => entry.id === pendingItem.itemId,
+    );
+    const account = next.accounts.find((entry) => entry.id === accountId);
+    if (!budget || !item || !account) return;
+    const category = categoryOf(next, budget.categoryId);
+    const transactionId = `budget-operation-${crypto.randomUUID()}`;
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const transaction = {
+      id: transactionId,
+      date:
+        selectedMonth === currentMonth
+          ? new Date().toISOString().slice(0, 10)
+          : `${selectedMonth}-01`,
+      type: "expense" as const,
+      categoryId: category.id,
+      categoryName: category.name,
+      payee: "",
+      comment: item.name,
+      fromAccount: account.name,
+      fromAmount: Number(item.amount),
+      fromCurrency: account.currency,
+      toAccount: account.name,
+      toAmount: 0,
+      toCurrency: account.currency,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    next.transactions.push(transaction);
+    adjustCurrentBalances(next, transaction, 1);
+    item.completed = true;
+    item.transactionId = transactionId;
+    await onChange(next);
+    setPendingItem(undefined);
+  };
+  const resetItems = async (budgetId: string) => {
+    const next = structuredClone(data);
+    const budget = next.budgets.find((item) => item.id === budgetId);
+    if (!budget?.items) return;
+    budget.items.forEach((item) => {
+      if (item.transactionId) {
+        const transaction = next.transactions.find(
+          (entry) => entry.id === item.transactionId,
+        );
+        if (transaction) adjustCurrentBalances(next, transaction, -1);
+        next.transactions = next.transactions.filter(
+          (entry) => entry.id !== item.transactionId,
+        );
+        delete item.transactionId;
+      }
+      item.completed = false;
+    });
+    await onChange(next);
+  };
+  const pendingBudgetItem = pendingItem
+    ? data.budgets
+        .find((entry) => entry.id === pendingItem.budgetId)
+        ?.items?.find((entry) => entry.id === pendingItem.itemId)
+    : undefined;
   return (
     <div className="page-stack">
       <section className="surface management-hero">
@@ -529,7 +738,16 @@ export function BudgetsPage({
         {data.budgets.map((budget) => {
           const category = categoryOf(data, budget.categoryId);
           const transactionsTotal = spent.get(budget.categoryId) || 0;
-          const completedTotal = completedBudgetTotal(budget);
+          const completedTotal = completedBudgetTotal(
+            budget,
+            monthTransactionIds,
+          );
+          const markedTotal =
+            budget.items?.reduce(
+              (sum, item) =>
+                sum + (item.completed ? Number(item.amount || 0) : 0),
+              0,
+            ) || 0;
           const value = transactionsTotal + completedTotal;
           const limit = budgetTotal(budget);
           const ratio = limit ? (value / limit) * 100 : 0;
@@ -589,28 +807,41 @@ export function BudgetsPage({
                 <div className="budget-checklist">
                   <div className="budget-checklist-head">
                     <span>План</span>
-                    <small>Отмечено {money(completedTotal)}</small>
+                    <div>
+                      <small>Отмечено {money(markedTotal)}</small>
+                      {markedTotal > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => void resetItems(budget.id)}
+                        >
+                          Сбросить
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
-                  {budget.items.map((item) => (
-                    <label
-                      className={item.completed ? "checked" : ""}
-                      key={item.id}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={item.completed}
-                        onChange={() => void toggleItem(budget.id, item.id)}
-                      />
-                      <i>
-                        <Check />
-                      </i>
-                      <span>{item.name}</span>
-                      <b>{money(item.amount)}</b>
-                    </label>
-                  ))}
+                  {budget.items.map((item) => {
+                    const checked = item.completed;
+                    return (
+                      <label className={checked ? "checked" : ""} key={item.id}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            void requestToggleItem(budget.id, item.id)
+                          }
+                        />
+                        <i>
+                          <Check />
+                        </i>
+                        <span>{item.name}</span>
+                        <b>{money(item.amount)}</b>
+                      </label>
+                    );
+                  })}
                   {transactionsTotal > 0 && (
                     <small className="budget-operations-note">
-                      По операциям: {money(transactionsTotal)}
+                      По операциям потрачено {money(transactionsTotal)}. В итог
+                      также входят пункты без созданной операции.
                     </small>
                   )}
                 </div>
@@ -634,6 +865,14 @@ export function BudgetsPage({
           onSave={save}
         />
       )}
+      {pendingItem && pendingBudgetItem ? (
+        <BudgetAccountPicker
+          data={data}
+          item={pendingBudgetItem}
+          onClose={() => setPendingItem(undefined)}
+          onSelect={(accountId) => void completeItem(accountId)}
+        />
+      ) : null}
     </div>
   );
 }

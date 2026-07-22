@@ -54,12 +54,13 @@ const transactionTime = (item: Transaction) => {
   return Number.isNaN(date) ? 0 : date;
 };
 
-// Операция, добавленная последней, должна быть первой — дата самой траты
-// может быть намеренно выбрана более ранней.
+// В финансовых списках календарная дата важнее момента ввода. Внутри одного
+// дня более новая запись остаётся выше.
 export const compareTransactionsNewest = (
   left: Transaction,
   right: Transaction,
 ) =>
+  right.date.localeCompare(left.date) ||
   transactionTime(right) - transactionTime(left) ||
   right.id.localeCompare(left.id);
 
