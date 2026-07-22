@@ -1,5 +1,7 @@
 import type { AppData, Category, Transaction } from "./types";
 
+export const SAVINGS_CATEGORY_ID = "system-savings";
+
 export const money = (
   value: number,
   currency = "RUB",
@@ -65,13 +67,22 @@ export const compareTransactionsNewest = (
   right.id.localeCompare(left.id);
 
 export const categoryOf = (data: AppData, id: string): Category =>
-  data.categories.find((item) => item.id === id) ?? {
-    id: "none",
-    name: "Без категории",
-    type: "mixed",
-    icon: "circle",
-    color: "#64748b",
-  };
+  data.categories.find((item) => item.id === id) ??
+  (id === SAVINGS_CATEGORY_ID
+    ? {
+        id: SAVINGS_CATEGORY_ID,
+        name: "Накопления",
+        type: "mixed",
+        icon: "bank",
+        color: "#3B82F6",
+      }
+    : {
+        id: "none",
+        name: "Без категории",
+        type: "mixed",
+        icon: "circle",
+        color: "#64748b",
+      });
 
 export const prevMonth = (key: string) => {
   const [year, month] = key.split("-").map(Number);

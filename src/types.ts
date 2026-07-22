@@ -38,6 +38,8 @@ export interface Transaction {
   tags?: string[];
   location?: string;
   repeat?: boolean;
+  savingsGoalId?: string;
+  savingsAdjustment?: "deposit" | "withdraw";
 }
 
 export interface Budget {

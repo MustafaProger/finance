@@ -101,6 +101,10 @@ import {
 import { BudgetsPage, CategoriesPage } from "./Management";
 import { GlobalSearch } from "./GlobalSearch";
 import { SavingsPage } from "./Savings";
+import {
+  syncSavingsAdjustmentEdit,
+  undoSavingsAdjustment,
+} from "./savingsLogic";
 import { importZenCsv } from "./csvImport";
 
 const routes: { id: Route; label: string; icon: typeof BarChart3 }[] = [
@@ -2425,8 +2429,12 @@ export default function App() {
       (current) => current.id === item.id,
     );
     if (index >= 0) {
-      adjustCurrentBalances(next, next.transactions[index], -1);
-      next.transactions[index] = item;
+      const existing = next.transactions[index];
+      adjustCurrentBalances(next, existing, -1);
+      const syncedItem = syncSavingsAdjustmentEdit(next, existing, item);
+      if (!syncedItem) return;
+      next.transactions[index] = syncedItem;
+      item = syncedItem;
     } else next.transactions.push(item);
     adjustCurrentBalances(next, item, 1);
     persistData(next);
@@ -2437,7 +2445,10 @@ export default function App() {
     if (!confirm("Удалить операцию?")) return;
     const next = structuredClone(data);
     const existing = next.transactions.find((item) => item.id === id);
-    if (existing) adjustCurrentBalances(next, existing, -1);
+    if (existing) {
+      adjustCurrentBalances(next, existing, -1);
+      undoSavingsAdjustment(next, existing);
+    }
     next.transactions = next.transactions.filter((item) => item.id !== id);
     persistData(next);
     setTransaction(undefined);

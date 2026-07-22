@@ -2,14 +2,21 @@ import { FormEvent, useState } from "react";
 import {
   ArrowDownLeft,
   ArrowUpRight,
+  Check,
+  CreditCard,
   Pencil,
   Plus,
   Trash2,
+  WalletCards,
   X,
 } from "lucide-react";
 import type { AppData, SavingsGoal } from "./types";
-import { money } from "./format";
+import { accountBalance, money } from "./format";
 import { CategoryGlyph } from "./icons";
+import {
+  applySavingsAdjustment,
+  type SavingsAdjustmentMode,
+} from "./savingsLogic";
 
 type ChangeHandler = (data: AppData) => void | Promise<void>;
 
@@ -25,7 +32,7 @@ const goalColors = [
 ];
 
 const goalIcons = [
-  "savings",
+  "bank",
   "car",
   "home",
   "vacation",
@@ -34,8 +41,10 @@ const goalIcons = [
   "laptop",
   "gift",
   "trophy",
-  "bank",
 ];
+
+const visibleGoalIcon = (icon?: string) =>
+  icon === "savings" || !icon ? "bank" : icon;
 
 function GoalEditor({
   goal,
@@ -50,7 +59,7 @@ function GoalEditor({
   const [balance, setBalance] = useState(String(goal?.balance || ""));
   const [target, setTarget] = useState(String(goal?.target || ""));
   const [color, setColor] = useState(goal?.color || goalColors[0]);
-  const [icon, setIcon] = useState(goal?.icon || "savings");
+  const [icon, setIcon] = useState(visibleGoalIcon(goal?.icon));
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!name.trim() || Number(balance) < 0 || Number(target) < 0) return;
@@ -161,21 +170,35 @@ function GoalEditor({
 }
 
 function GoalAdjustment({
+  data,
   goal,
   onClose,
   onApply,
 }: {
+  data: AppData;
   goal: SavingsGoal;
   onClose: () => void;
-  onApply: (amount: number) => void;
+  onApply: (
+    amount: number,
+    accountId: string,
+    mode: SavingsAdjustmentMode,
+  ) => void;
 }) {
-  const [mode, setMode] = useState<"deposit" | "withdraw">("deposit");
+  const [mode, setMode] = useState<SavingsAdjustmentMode>("deposit");
   const [amount, setAmount] = useState("");
+  const accounts = data.accounts.filter(
+    (account) => account.currency === (data.profile.currency || "RUB"),
+  );
+  const [accountId, setAccountId] = useState(accounts[0]?.id || "");
+  const numericAmount = Number(amount);
+  const canSubmit =
+    Boolean(accountId) &&
+    numericAmount > 0 &&
+    (mode === "deposit" || numericAmount <= goal.balance);
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    const value = Number(amount);
-    if (!(value > 0)) return;
-    onApply(mode === "deposit" ? value : -Math.min(value, goal.balance));
+    if (!canSubmit) return;
+    onApply(numericAmount, accountId, mode);
   };
   return (
     <div
@@ -225,7 +248,50 @@ function GoalAdjustment({
             <b>₽</b>
           </div>
         </label>
-        <button className="management-submit" type="submit">
+        <div className="management-field savings-account-field">
+          <span>
+            {mode === "deposit"
+              ? "С какого счёта списать?"
+              : "На какой счёт зачислить?"}
+          </span>
+          <div className="savings-account-list">
+            {accounts.map((account) => (
+              <button
+                type="button"
+                key={account.id}
+                className={accountId === account.id ? "active" : ""}
+                onClick={() => setAccountId(account.id)}
+                aria-pressed={accountId === account.id}
+              >
+                <i
+                  style={{ "--account": account.color } as React.CSSProperties}
+                >
+                  {account.type === "cash" ? <WalletCards /> : <CreditCard />}
+                </i>
+                <span>
+                  <strong>{account.name}</strong>
+                  <small>
+                    {money(
+                      accountBalance(data, account.name),
+                      account.currency,
+                    )}
+                  </small>
+                </span>
+                {accountId === account.id ? <Check /> : null}
+              </button>
+            ))}
+          </div>
+          {!accounts.length ? (
+            <small className="savings-account-empty">
+              Нет счетов в валюте {data.profile.currency || "RUB"}
+            </small>
+          ) : null}
+        </div>
+        <button
+          className="management-submit"
+          type="submit"
+          disabled={!canSubmit}
+        >
           {mode === "deposit" ? "Пополнить накопление" : "Снять из накопления"}
         </button>
       </form>
@@ -255,11 +321,14 @@ export function SavingsPage({
     await onChange(next);
     setEditing(undefined);
   };
-  const adjust = async (goal: SavingsGoal, amount: number) => {
-    const next = structuredClone(data);
-    const current = next.savingsGoals.find((item) => item.id === goal.id);
-    if (!current) return;
-    current.balance = Math.max(0, current.balance + amount);
+  const adjust = async (
+    goal: SavingsGoal,
+    amount: number,
+    accountId: string,
+    mode: SavingsAdjustmentMode,
+  ) => {
+    const next = applySavingsAdjustment(data, goal.id, accountId, amount, mode);
+    if (!next) return;
     await onChange(next);
     setAdjusting(undefined);
   };
@@ -301,7 +370,7 @@ export function SavingsPage({
             >
               <header>
                 <span>
-                  <CategoryGlyph name={goal.icon} size={23} />
+                  <CategoryGlyph name={visibleGoalIcon(goal.icon)} size={23} />
                 </span>
                 <div className="card-actions">
                   <button
@@ -371,9 +440,12 @@ export function SavingsPage({
       )}
       {adjusting && (
         <GoalAdjustment
+          data={data}
           goal={adjusting}
           onClose={() => setAdjusting(undefined)}
-          onApply={(amount) => void adjust(adjusting, amount)}
+          onApply={(amount, accountId, mode) =>
+            void adjust(adjusting, amount, accountId, mode)
+          }
         />
       )}
     </div>

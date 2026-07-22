@@ -3004,6 +3004,77 @@ textarea:focus-visible {
 .savings-adjustment .segmented svg {
   width: 16px;
 }
+.savings-account-field {
+  min-width: 0;
+}
+.savings-account-list {
+  display: grid;
+  gap: 8px;
+}
+.savings-account-list > button {
+  width: 100%;
+  min-width: 0;
+  min-height: 58px;
+  padding: 8px 11px;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: #e8eef8;
+  background: #091321;
+  cursor: pointer;
+  text-align: left;
+}
+.savings-account-list > button:hover,
+.savings-account-list > button.active {
+  border-color: rgba(57, 132, 255, 0.5);
+  background: rgba(57, 132, 255, 0.1);
+}
+.savings-account-list i {
+  --account: #3b82f6;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--account);
+  background: color-mix(in srgb, var(--account) 14%, transparent);
+  font-style: normal;
+}
+.savings-account-list i svg,
+.savings-account-list > button > svg {
+  width: 18px;
+}
+.savings-account-list > button > svg {
+  color: #69a4ff;
+}
+.savings-account-list span,
+.savings-account-list strong,
+.savings-account-list small {
+  min-width: 0;
+  display: block;
+}
+.savings-account-list strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.savings-account-list small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 9px;
+}
+.savings-account-empty {
+  color: var(--muted);
+  font-size: 10px;
+}
+.savings-adjustment .management-submit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .account-card {
   position: relative;
   overflow: hidden;
