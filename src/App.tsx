@@ -1133,11 +1133,15 @@ function Overview({
 function Transactions({
   data,
   selectedMonth,
+  accountId,
+  onAccountChange,
   edit,
   add,
 }: {
   data: AppData;
   selectedMonth: string;
+  accountId: string;
+  onAccountChange: (accountId: string) => void;
   edit: (item: Transaction) => void;
   add: () => void;
 }) {
@@ -1150,10 +1154,22 @@ function Transactions({
     setDateFrom("");
     setDateTo("");
   }, [selectedMonth]);
+  const selectedAccount = data.accounts.find((item) => item.id === accountId);
+  useEffect(() => {
+    if (accountId !== "all" && !selectedAccount) onAccountChange("all");
+  }, [accountId, onAccountChange, selectedAccount]);
   const items = useMemo(
     () =>
       [...data.transactions]
         .filter((item) => item.date.startsWith(selectedMonth))
+        .filter(
+          (item) =>
+            !selectedAccount ||
+            (item.fromAccount === selectedAccount.name &&
+              item.fromCurrency === selectedAccount.currency) ||
+            (item.toAccount === selectedAccount.name &&
+              item.toCurrency === selectedAccount.currency),
+        )
         .filter((item) => type === "all" || item.type === type)
         .filter((item) => category === "all" || item.categoryId === category)
         .filter((item) => !dateFrom || item.date >= dateFrom)
@@ -1176,7 +1192,16 @@ function Transactions({
             ),
         )
         .sort(compareTransactionsNewest),
-    [data, selectedMonth, query, type, category, dateFrom, dateTo],
+    [
+      data,
+      selectedMonth,
+      selectedAccount,
+      query,
+      type,
+      category,
+      dateFrom,
+      dateTo,
+    ],
   );
   const totals = items.reduce(
     (value, item) => {
@@ -1237,6 +1262,18 @@ function Transactions({
                 .map((item) => ({ value: item.id, label: item.name })),
             ]}
           />
+          <Select
+            label="Все счета"
+            value={accountId}
+            onChange={onAccountChange}
+            options={[
+              { value: "all", label: "Все счета и карты" },
+              ...data.accounts.map((item) => ({
+                value: item.id,
+                label: `${item.name} · ${item.currency}`,
+              })),
+            ]}
+          />
           <label className="date-filter">
             <span>С даты</span>
             <input
@@ -1281,7 +1318,11 @@ function Transactions({
         <div className="section-heading">
           <div>
             <h2>{monthLabel(selectedMonth)}</h2>
-            <p>Откройте операцию, чтобы изменить данные</p>
+            <p>
+              {selectedAccount
+                ? `${selectedAccount.name} · ${selectedAccount.currency}`
+                : "Откройте операцию, чтобы изменить данные"}
+            </p>
           </div>
           <button className="primary-button" onClick={add}>
             <Plus size={18} /> Добавить
@@ -1924,11 +1965,13 @@ function Accounts({
   data,
   selectedMonth,
   onEditBalance,
+  onViewTransactions,
   onChange,
 }: {
   data: AppData;
   selectedMonth: string;
   onEditBalance: (account: Account) => void;
+  onViewTransactions: (account: Account) => void;
   onChange: (data: AppData) => Promise<boolean>;
 }) {
   const [creating, setCreating] = useState(false);
@@ -2069,6 +2112,13 @@ function Accounts({
                   −{money(expense, account.currency)}
                 </span>
               </footer>
+              <button
+                type="button"
+                className="account-transactions-button"
+                onClick={() => onViewTransactions(account)}
+              >
+                <List /> Смотреть операции
+              </button>
             </section>
           );
         })}
@@ -2322,6 +2372,7 @@ export default function App() {
   const [mobileMenu, setMobileMenu] = useState(false);
   const [globalSearch, setGlobalSearch] = useState(false);
   const [balanceAccount, setBalanceAccount] = useState<Account | undefined>();
+  const [transactionAccountId, setTransactionAccountId] = useState("all");
   useBodyScrollLock(
     transaction !== undefined || globalSearch || Boolean(balanceAccount),
   );
@@ -2598,6 +2649,8 @@ export default function App() {
             <Transactions
               data={data}
               selectedMonth={selectedMonth}
+              accountId={transactionAccountId}
+              onAccountChange={setTransactionAccountId}
               edit={setTransaction}
               add={() => setTransaction(null)}
             />
@@ -2628,6 +2681,10 @@ export default function App() {
               data={data}
               selectedMonth={selectedMonth}
               onEditBalance={setBalanceAccount}
+              onViewTransactions={(account) => {
+                setTransactionAccountId(account.id);
+                navigate("transactions");
+              }}
               onChange={persistData}
             />
           )}{" "}
