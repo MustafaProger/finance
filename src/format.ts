@@ -115,6 +115,25 @@ export const statsFor = (data: AppData, month: string) =>
       { income: 0, expense: 0, transfers: 0 },
     );
 
+export const statsForRange = (
+  data: AppData,
+  dateFrom: string,
+  dateTo: string,
+) =>
+  data.transactions
+    .filter((item) => item.date >= dateFrom && item.date <= dateTo)
+    .reduce(
+      (result, item) => {
+        if (item.type === "income" && item.toCurrency === "RUB")
+          result.income += Number(item.toAmount || 0);
+        if (item.type === "expense" && item.fromCurrency === "RUB")
+          result.expense += Number(item.fromAmount || 0);
+        if (item.type === "transfer") result.transfers += 1;
+        return result;
+      },
+      { income: 0, expense: 0, transfers: 0 },
+    );
+
 export const categoryStats = (
   data: AppData,
   month: string,
@@ -125,6 +144,32 @@ export const categoryStats = (
     .filter(
       (item) =>
         item.date.startsWith(month) &&
+        item.type === type &&
+        currencyOf(item) === "RUB",
+    )
+    .forEach((item) =>
+      values.set(
+        item.categoryId,
+        (values.get(item.categoryId) || 0) + amountOf(item),
+      ),
+    );
+  return [...values]
+    .map(([id, value]) => ({ ...categoryOf(data, id), value }))
+    .sort((a, b) => b.value - a.value);
+};
+
+export const categoryStatsForRange = (
+  data: AppData,
+  dateFrom: string,
+  dateTo: string,
+  type: "expense" | "income" = "expense",
+) => {
+  const values = new Map<string, number>();
+  data.transactions
+    .filter(
+      (item) =>
+        item.date >= dateFrom &&
+        item.date <= dateTo &&
         item.type === type &&
         currencyOf(item) === "RUB",
     )

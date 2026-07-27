@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient
+      id="tile"
+      x1="92"
+      y1="62"
+      x2="420"
+      y2="448"
+      gradientUnits="userSpaceOnUse"
+    >
+      <stop stop-color="#3984FF" />
+      <stop offset=".52" stop-color="#2469EA" />
+      <stop offset="1" stop-color="#1548B8" />
+    </linearGradient>
+    <linearGradient
+      id="mark"
+      x1="180"
+      y1="152"
+      x2="337"
+      y2="354"
+      gradientUnits="userSpaceOnUse"
+    >
+      <stop stop-color="#FFFFFF" />
+      <stop offset="1" stop-color="#EAF1FF" />
+    </linearGradient>
+    <linearGradient
+      id="gain"
+      x1="190"
+      y1="278"
+      x2="320"
+      y2="194"
+      gradientUnits="userSpaceOnUse"
+    >
+      <stop stop-color="#8DF4D0" />
+      <stop offset="1" stop-color="#D7FFF1" />
+    </linearGradient>
+    <filter
+      id="shadow"
+      x="80"
+      y="74"
+      width="352"
+      height="362"
+      filterUnits="userSpaceOnUse"
+    >
+      <feDropShadow
+        dx="0"
+        dy="18"
+        stdDeviation="18"
+        flood-color="#061638"
+        flood-opacity=".34"
+      />
+    </filter>
+  </defs>
+
+  <!-- iOS supplies its own rounded mask, so the artwork must fill every pixel. -->
+  <rect width="512" height="512" fill="url(#tile)" />
+  <path
+    d="M20 175C58 81 155 23 286 23c93 0 169 39 219 99V0H0v512h120C48 412-17 266 20 175Z"
+    fill="#FFFFFF"
+    opacity=".08"
+  />
+  <rect
+    x="11"
+    y="11"
+    width="490"
+    height="490"
+    rx="108"
+    fill="none"
+    stroke="#FFFFFF"
+    stroke-opacity=".16"
+    stroke-width="3"
+  />
+
+  <g filter="url(#shadow)">
+    <path
+      d="M142 349V238c0-70 50-122 114-122s114 52 114 122v111"
+      fill="none"
+      stroke="url(#mark)"
+      stroke-width="34"
+      stroke-linecap="round"
+    />
+    <path
+      d="M171 366h170"
+      fill="none"
+      stroke="url(#mark)"
+      stroke-width="34"
+      stroke-linecap="round"
+    />
+    <rect x="183" y="281" width="38" height="68" rx="13" fill="url(#gain)" />
+    <rect x="237" y="244" width="38" height="105" rx="13" fill="url(#gain)" />
+    <rect x="291" y="202" width="38" height="147" rx="13" fill="url(#gain)" />
+  </g>
+
+  <circle cx="391" cy="112" r="12" fill="#B8FFE8" opacity=".9" />
+  <circle cx="391" cy="112" r="24" fill="#B8FFE8" opacity=".13" />
+</svg>

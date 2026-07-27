@@ -16,6 +16,8 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   CircleDollarSign,
   Cloud,
   CloudOff,
@@ -71,6 +73,7 @@ import {
   amountOf,
   categoryOf,
   categoryStats,
+  categoryStatsForRange,
   compactMoney,
   compareTransactionsNewest,
   currencyOf,
@@ -78,8 +81,8 @@ import {
   money,
   monthKeys,
   monthLabel,
-  prevMonth,
   statsFor,
+  statsForRange,
   titleOf,
 } from "./format";
 import { CategoryGlyph } from "./icons";
@@ -135,6 +138,39 @@ const tooltipStyle = {
 };
 
 type CashflowPeriod = 1 | 3 | 6 | 12 | "all";
+type DateRange = { from: string; to: string };
+type TransactionFilters = {
+  query: string;
+  type: string;
+  categoryId: string;
+  accountId: string;
+};
+type FontScale = number;
+
+const defaultTransactionFilters: TransactionFilters = {
+  query: "",
+  type: "all",
+  categoryId: "all",
+  accountId: "all",
+};
+
+const fontScaleMin = 80;
+const fontScaleMax = 150;
+const fontScaleStep = 10;
+const fontScaleStorageKey = "kapital-font-scale-v1";
+
+function savedFontScale(): FontScale {
+  try {
+    const saved = Number(localStorage.getItem(fontScaleStorageKey));
+    return saved >= fontScaleMin &&
+      saved <= fontScaleMax &&
+      saved % fontScaleStep === 0
+      ? saved
+      : 100;
+  } catch {
+    return 100;
+  }
+}
 
 const cashflowPeriods: {
   value: CashflowPeriod;
@@ -158,6 +194,169 @@ const accountColors = [
 ];
 
 const accountCurrencies = ["RUB", "EUR", "USD", "GBP", "AED", "TRY"];
+
+function shiftMonth(value: string, step: number) {
+  const [year, month] = value.split("-").map(Number);
+  const next = new Date(year, month - 1 + step, 1);
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthDateRange(month: string): DateRange {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const lastDay = new Date(year, monthNumber, 0).getDate();
+  const monthEnd = `${month}-${String(lastDay).padStart(2, "0")}`;
+  const today = todayDate();
+  return {
+    from: `${month}-01`,
+    to: month === today.slice(0, 7) ? today : monthEnd,
+  };
+}
+
+function dateFromUtc(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function isoDate(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
+function todayDate() {
+  const value = new Date();
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+function addDays(value: string, days: number) {
+  const date = dateFromUtc(value);
+  date.setUTCDate(date.getUTCDate() + days);
+  return isoDate(date);
+}
+
+function dateRangeDays(range: DateRange) {
+  return (
+    Math.round(
+      (dateFromUtc(range.to).getTime() - dateFromUtc(range.from).getTime()) /
+        86_400_000,
+    ) + 1
+  );
+}
+
+function previousDateRange(range: DateRange): DateRange {
+  const days = dateRangeDays(range);
+  return {
+    from: addDays(range.from, -days),
+    to: addDays(range.from, -1),
+  };
+}
+
+function dateRangeLabel(range: DateRange) {
+  if (range.from && !range.to)
+    return `${dateLabel(range.from, true)} — по сегодняшний день`;
+  if (!range.from && range.to) return `С начала — ${dateLabel(range.to, true)}`;
+  if (!range.from && !range.to) return "С начала — по сегодняшний день";
+  if (range.from === range.to) return dateLabel(range.from, true);
+  return `${dateLabel(range.from, true)} — ${dateLabel(range.to, true)}`;
+}
+
+function filterTransactions(
+  data: AppData,
+  range: DateRange,
+  filters: TransactionFilters,
+) {
+  const upperBound = range.to || todayDate();
+  const selectedAccount = data.accounts.find(
+    (item) => item.id === filters.accountId,
+  );
+  const query = filters.query.trim().toLowerCase();
+  return data.transactions
+    .filter(
+      (item) =>
+        (!range.from || item.date >= range.from) && item.date <= upperBound,
+    )
+    .filter(
+      (item) =>
+        !selectedAccount ||
+        (item.fromAccount === selectedAccount.name &&
+          item.fromCurrency === selectedAccount.currency) ||
+        (item.toAccount === selectedAccount.name &&
+          item.toCurrency === selectedAccount.currency),
+    )
+    .filter((item) => filters.type === "all" || item.type === filters.type)
+    .filter(
+      (item) =>
+        filters.categoryId === "all" || item.categoryId === filters.categoryId,
+    )
+    .filter(
+      (item) =>
+        !query ||
+        [
+          item.comment,
+          item.payee,
+          item.categoryName,
+          item.fromAccount,
+          item.toAccount,
+          ...(item.tags || []),
+          ...(item.tags || []).map((tag) => `#${tag}`),
+        ].some((value) =>
+          String(value || "")
+            .toLowerCase()
+            .includes(query),
+        ),
+    );
+}
+
+function statsForTransactions(transactions: Transaction[]) {
+  return transactions.reduce(
+    (result, item) => {
+      if (item.type === "income" && item.toCurrency === "RUB")
+        result.income += Number(item.toAmount || 0);
+      if (item.type === "expense" && item.fromCurrency === "RUB")
+        result.expense += Number(item.fromAmount || 0);
+      if (item.type === "transfer") result.transfers += 1;
+      return result;
+    },
+    { income: 0, expense: 0, transfers: 0 },
+  );
+}
+
+function resolvedDateRange(range: DateRange, transactions: Transaction[]) {
+  const to = range.to || todayDate();
+  const earliest = transactions.reduce(
+    (result, item) =>
+      item.date <= to && (!result || item.date < result) ? item.date : result,
+    "",
+  );
+  const from = range.from || earliest || to;
+  return from <= to ? { from, to } : { from: to, to };
+}
+
+function rangeChartData(data: AppData, range: DateRange) {
+  const firstMonth = range.from.slice(0, 7);
+  const lastMonth = range.to.slice(0, 7);
+  if (firstMonth === lastMonth) {
+    return Array.from({ length: dateRangeDays(range) }, (_, index) => {
+      const date = addDays(range.from, index);
+      return {
+        month: String(Number(date.slice(-2))),
+        ...statsForRange(data, date, date),
+      };
+    });
+  }
+
+  const result = [];
+  let cursor = firstMonth;
+  while (cursor <= lastMonth) {
+    const monthRange = monthDateRange(cursor);
+    const from = monthRange.from < range.from ? range.from : monthRange.from;
+    const to = monthRange.to > range.to ? range.to : monthRange.to;
+    result.push({
+      month: monthLabel(cursor, true).replace(".", ""),
+      ...statsForRange(data, from, to),
+    });
+    cursor = shiftMonth(cursor, 1);
+  }
+  return result;
+}
 
 function currencyMark(currency: string) {
   if (currency === "RUB") return "₽";
@@ -246,6 +445,67 @@ function CashflowPeriodControl({
   );
 }
 
+function DateRangeFields({
+  value,
+  onChange,
+}: {
+  value: DateRange;
+  onChange: (value: DateRange) => void;
+}) {
+  return (
+    <div className="date-range-control" role="group" aria-label="Период данных">
+      <div className="date-range-field">
+        <span>Начало периода</span>
+        <div>
+          <CalendarDays aria-hidden="true" />
+          <input
+            type="date"
+            aria-label="Начало периода"
+            value={value.from}
+            max={value.to || todayDate()}
+            onInput={(event) =>
+              onChange({ ...value, from: event.currentTarget.value })
+            }
+          />
+          {value.from && (
+            <button
+              type="button"
+              aria-label="Очистить начало периода"
+              onClick={() => onChange({ ...value, from: "" })}
+            >
+              <X aria-hidden="true" />
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="date-range-field">
+        <span>Конец периода</span>
+        <div>
+          <CalendarDays aria-hidden="true" />
+          <input
+            type="date"
+            aria-label="Конец периода"
+            value={value.to}
+            min={value.from || undefined}
+            onInput={(event) =>
+              onChange({ ...value, to: event.currentTarget.value })
+            }
+          />
+          {value.to && (
+            <button
+              type="button"
+              aria-label="Очистить конец периода"
+              onClick={() => onChange({ ...value, to: "" })}
+            >
+              <X aria-hidden="true" />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Select({
   value,
   options,
@@ -327,28 +587,35 @@ function CashflowChart({
   selectedMonth,
   compact = false,
   period = 6,
+  dateRange,
 }: {
   data: AppData;
   selectedMonth: string;
   compact?: boolean;
   period?: CashflowPeriod;
+  dateRange?: DateRange;
 }) {
-  const chartData =
-    period === 1
-      ? cashflowDailyKeys(selectedMonth).map((key) => ({
-          month: String(Number(key.slice(-2))),
-          ...statsFor(data, key),
-        }))
-      : monthKeys(
-          selectedMonth,
-          cashflowMonthCount(data, selectedMonth, period),
-        ).map((key) => ({
-          month:
-            period === "all"
-              ? `${monthLabel(key, true).replace(".", "")} ’${key.slice(2, 4)}`
-              : monthLabel(key, true).replace(".", ""),
-          ...statsFor(data, key),
-        }));
+  const chartData = useMemo(
+    () =>
+      dateRange
+        ? rangeChartData(data, dateRange)
+        : period === 1
+          ? cashflowDailyKeys(selectedMonth).map((key) => ({
+              month: String(Number(key.slice(-2))),
+              ...statsFor(data, key),
+            }))
+          : monthKeys(
+              selectedMonth,
+              cashflowMonthCount(data, selectedMonth, period),
+            ).map((key) => ({
+              month:
+                period === "all"
+                  ? `${monthLabel(key, true).replace(".", "")} ’${key.slice(2, 4)}`
+                  : monthLabel(key, true).replace(".", ""),
+              ...statsFor(data, key),
+            })),
+    [data, dateRange, period, selectedMonth],
+  );
   return (
     <div className={`chart-shell ${compact ? "compact" : ""}`}>
       <ResponsiveContainer
@@ -423,11 +690,15 @@ function CashflowChart({
 function Donut({
   data,
   selectedMonth,
+  dateRange,
 }: {
   data: AppData;
   selectedMonth: string;
+  dateRange?: DateRange;
 }) {
-  const categories = categoryStats(data, selectedMonth);
+  const categories = dateRange
+    ? categoryStatsForRange(data, dateRange.from, dateRange.to)
+    : categoryStats(data, selectedMonth);
   const [excludedCategoryIds, setExcludedCategoryIds] = useState<string[]>([]);
   const excludedIds = new Set(excludedCategoryIds);
   const visibleCategories = categories.filter(
@@ -462,10 +733,10 @@ function Donut({
               <Pie
                 data={chartCategories}
                 dataKey="value"
-                innerRadius="68%"
-                outerRadius="91%"
+                innerRadius="75%"
+                outerRadius="92%"
                 paddingAngle={visibleCategories.length ? 2 : 0}
-                cornerRadius={8}
+                cornerRadius={14}
                 stroke="none"
                 isAnimationActive
                 animationBegin={0}
@@ -1051,6 +1322,7 @@ function Overview({
   edit: (item: Transaction) => void;
   add: () => void;
 }) {
+  const [cashflowPeriod, setCashflowPeriod] = useState<CashflowPeriod>(6);
   const stats = statsFor(data, selectedMonth);
   const net = stats.income - stats.expense;
   const recent = [...data.transactions]
@@ -1060,6 +1332,9 @@ function Overview({
   const totalBalance = data.accounts
     .filter((item) => item.currency === "RUB")
     .reduce((sum, item) => sum + accountBalance(data, item.name), 0);
+  const cashflowPeriodTitle =
+    cashflowPeriods.find((item) => item.value === cashflowPeriod)?.title ||
+    "6 месяцев";
   return (
     <div className="dashboard-grid">
       <section className="hero-balance">
@@ -1090,14 +1365,25 @@ function Overview({
         <div className="section-heading">
           <div>
             <h2>Денежный поток</h2>
-            <p>Доходы и расходы за 6 месяцев</p>
+            <p>Доходы и расходы за {cashflowPeriodTitle}</p>
           </div>
-          <div className="legend">
-            <span className="income">Доходы</span>
-            <span className="expense">Расходы</span>
+          <div className="chart-heading-tools">
+            <CashflowPeriodControl
+              value={cashflowPeriod}
+              onChange={setCashflowPeriod}
+            />
+            <div className="legend">
+              <span className="income">Доходы</span>
+              <span className="expense">Расходы</span>
+            </div>
           </div>
         </div>
-        <CashflowChart data={data} selectedMonth={selectedMonth} compact />
+        <CashflowChart
+          data={data}
+          selectedMonth={selectedMonth}
+          period={cashflowPeriod}
+          compact
+        />
       </section>
       <section className="surface structure-card">
         <div className="section-heading">
@@ -1132,76 +1418,35 @@ function Overview({
 
 function Transactions({
   data,
-  selectedMonth,
-  accountId,
-  onAccountChange,
+  dateRange,
+  onDateRangeChange,
+  filters,
+  onFiltersChange,
   edit,
   add,
+  mode = "full",
 }: {
   data: AppData;
-  selectedMonth: string;
-  accountId: string;
-  onAccountChange: (accountId: string) => void;
+  dateRange: DateRange;
+  onDateRangeChange: (value: DateRange) => void;
+  filters: TransactionFilters;
+  onFiltersChange: (value: TransactionFilters) => void;
   edit: (item: Transaction) => void;
   add: () => void;
+  mode?: "full" | "filters" | "list";
 }) {
-  const [query, setQuery] = useState("");
-  const [type, setType] = useState("all");
-  const [category, setCategory] = useState("all");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  useEffect(() => {
-    setDateFrom("");
-    setDateTo("");
-  }, [selectedMonth]);
-  const selectedAccount = data.accounts.find((item) => item.id === accountId);
-  useEffect(() => {
-    if (accountId !== "all" && !selectedAccount) onAccountChange("all");
-  }, [accountId, onAccountChange, selectedAccount]);
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const [filtersExpansionSettled, setFiltersExpansionSettled] =
+    useState(false);
+  const selectedAccount = data.accounts.find(
+    (item) => item.id === filters.accountId,
+  );
   const items = useMemo(
     () =>
-      [...data.transactions]
-        .filter((item) => item.date.startsWith(selectedMonth))
-        .filter(
-          (item) =>
-            !selectedAccount ||
-            (item.fromAccount === selectedAccount.name &&
-              item.fromCurrency === selectedAccount.currency) ||
-            (item.toAccount === selectedAccount.name &&
-              item.toCurrency === selectedAccount.currency),
-        )
-        .filter((item) => type === "all" || item.type === type)
-        .filter((item) => category === "all" || item.categoryId === category)
-        .filter((item) => !dateFrom || item.date >= dateFrom)
-        .filter((item) => !dateTo || item.date <= dateTo)
-        .filter(
-          (item) =>
-            !query.trim() ||
-            [
-              item.comment,
-              item.payee,
-              item.categoryName,
-              item.fromAccount,
-              item.toAccount,
-              ...(item.tags || []),
-              ...(item.tags || []).map((tag) => `#${tag}`),
-            ].some((value) =>
-              String(value || "")
-                .toLowerCase()
-                .includes(query.toLowerCase()),
-            ),
-        )
-        .sort(compareTransactionsNewest),
-    [
-      data,
-      selectedMonth,
-      selectedAccount,
-      query,
-      type,
-      category,
-      dateFrom,
-      dateTo,
-    ],
+      filterTransactions(data, dateRange, filters).sort(
+        compareTransactionsNewest,
+      ),
+    [data, dateRange, filters],
   );
   const totals = items.reduce(
     (value, item) => {
@@ -1213,6 +1458,8 @@ function Transactions({
     },
     { income: 0, expense: 0 },
   );
+  const net = totals.income - totals.expense;
+  const savingsRate = totals.income ? (net / totals.income) * 100 : 0;
   const groupedItems = useMemo(() => {
     const byDate = new Map<string, Transaction[]>();
     [...items]
@@ -1230,157 +1477,249 @@ function Transactions({
   }, [items]);
   return (
     <div className="page-stack">
-      <section className="surface filters-card">
-        <div className="filter-row">
-          <label className="search-box">
-            <Search size={19} />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Поиск по операциям"
-            />
-          </label>
-          <Select
-            label="Все типы"
-            value={type}
-            onChange={setType}
-            options={[
-              { value: "all", label: "Все типы" },
-              { value: "expense", label: "Расходы" },
-              { value: "income", label: "Доходы" },
-              { value: "transfer", label: "Переводы" },
-            ]}
-          />
-          <Select
-            label="Все категории"
-            value={category}
-            onChange={setCategory}
-            options={[
-              { value: "all", label: "Все категории" },
-              ...data.categories
-                .filter((item) => item.type !== "income")
-                .map((item) => ({ value: item.id, label: item.name })),
-            ]}
-          />
-          <Select
-            label="Все счета"
-            value={accountId}
-            onChange={onAccountChange}
-            options={[
-              { value: "all", label: "Все счета и карты" },
-              ...data.accounts.map((item) => ({
-                value: item.id,
-                label: `${item.name} · ${item.currency}`,
-              })),
-            ]}
-          />
-          <label className="date-filter">
-            <span>С даты</span>
-            <input
-              type="date"
-              value={dateFrom}
-              min={`${selectedMonth}-01`}
-              max={dateTo || undefined}
-              onInput={(event) => setDateFrom(event.currentTarget.value)}
-            />
-          </label>
-          <label className="date-filter">
-            <span>По дату</span>
-            <input
-              type="date"
-              value={dateTo}
-              min={dateFrom || `${selectedMonth}-01`}
-              onInput={(event) => setDateTo(event.currentTarget.value)}
-            />
-          </label>
-        </div>
-        <div className="stats-row">
-          <StatCard
-            label="Найдено"
-            value={String(items.length)}
-            icon={<List />}
-          />
-          <StatCard
-            label="Доходы"
-            value={money(totals.income)}
-            tone="income"
-            icon={<ArrowUpRight />}
-          />
-          <StatCard
-            label="Расходы"
-            value={money(totals.expense)}
-            tone="expense"
-            icon={<ArrowDownRight />}
-          />
-        </div>
-      </section>
-      <section className="surface operations-card">
-        <div className="section-heading">
-          <div>
-            <h2>{monthLabel(selectedMonth)}</h2>
-            <p>
-              {selectedAccount
-                ? `${selectedAccount.name} · ${selectedAccount.currency}`
-                : "Откройте операцию, чтобы изменить данные"}
-            </p>
-          </div>
-          <button className="primary-button" onClick={add}>
-            <Plus size={18} /> Добавить
-          </button>
-        </div>
-        <div className="operations-list full">
-          {items.length ? (
-            groupedItems.map(([date, dateItems]) => (
-              <section className="operation-date-group" key={date}>
-                <header>
-                  <strong>{dateLabel(date, true)}</strong>
-                  <span>{dateItems.length} оп.</span>
-                </header>
-                {dateItems.map((item) => (
-                  <OperationRow
-                    data={data}
-                    item={item}
-                    onClick={() => edit(item)}
-                    key={item.id}
-                  />
-                ))}
-              </section>
-            ))
-          ) : (
-            <div className="empty">
-              <Search />
-              <strong>Ничего не найдено</strong>
-              <span>Измените фильтры или добавьте операцию</span>
+      {mode !== "list" && (
+        <section
+          className={[
+            "surface filters-card",
+            filtersExpanded ? "is-expanded" : "",
+            filtersExpansionSettled ? "is-expansion-settled" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        >
+          <div className="filter-card-heading">
+            <div>
+              <h2>Период и фильтры</h2>
+              <p>{dateRangeLabel(dateRange)}</p>
             </div>
-          )}
-        </div>
-      </section>
+            <div className="filter-card-actions">
+              <span>{items.length} операций</span>
+              <button
+                type="button"
+                className="filter-toggle"
+                aria-expanded={filtersExpanded}
+                aria-controls="transaction-filters"
+                onClick={() => {
+                  setFiltersExpansionSettled(false);
+                  setFiltersExpanded((value) => !value);
+                }}
+              >
+                <Filter size={16} />
+                <span>{filtersExpanded ? "Скрыть" : "Фильтры"}</span>
+                <ChevronDown size={16} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+          <div
+            id="transaction-filters"
+            className="filter-card-collapse"
+            aria-hidden={!filtersExpanded}
+            onTransitionEnd={(event) => {
+              if (
+                event.target === event.currentTarget &&
+                event.propertyName === "grid-template-rows" &&
+                filtersExpanded
+              ) {
+                setFiltersExpansionSettled(true);
+              }
+            }}
+          >
+            <div className="filter-card-collapse-inner">
+              <div className="filter-toolbar">
+                <DateRangeFields
+                  value={dateRange}
+                  onChange={onDateRangeChange}
+                />
+                <label className="search-box">
+                  <Search size={19} />
+                  <input
+                    value={filters.query}
+                    onChange={(event) =>
+                      onFiltersChange({
+                        ...filters,
+                        query: event.target.value,
+                      })
+                    }
+                    placeholder="Поиск по операциям"
+                  />
+                </label>
+              </div>
+              <div className="filter-selects">
+                <Select
+                  label="Все типы"
+                  value={filters.type}
+                  onChange={(type) => onFiltersChange({ ...filters, type })}
+                  options={[
+                    { value: "all", label: "Все типы" },
+                    { value: "expense", label: "Расходы" },
+                    { value: "income", label: "Доходы" },
+                    { value: "transfer", label: "Переводы" },
+                  ]}
+                />
+                <Select
+                  label="Все категории"
+                  value={filters.categoryId}
+                  onChange={(categoryId) =>
+                    onFiltersChange({ ...filters, categoryId })
+                  }
+                  options={[
+                    { value: "all", label: "Все категории" },
+                    ...data.categories
+                      .filter((item) => item.type !== "income")
+                      .map((item) => ({
+                        value: item.id,
+                        label: item.name,
+                      })),
+                  ]}
+                />
+                <Select
+                  label="Все счета"
+                  value={filters.accountId}
+                  onChange={(accountId) =>
+                    onFiltersChange({ ...filters, accountId })
+                  }
+                  options={[
+                    { value: "all", label: "Все счета и карты" },
+                    ...data.accounts.map((item) => ({
+                      value: item.id,
+                      label: `${item.name} · ${item.currency}`,
+                    })),
+                  ]}
+                />
+              </div>
+              <div className="stats-row transaction-stats">
+                <StatCard
+                  label="Найдено"
+                  value={String(items.length)}
+                  icon={<List />}
+                />
+                <StatCard
+                  label="Доходы"
+                  value={money(totals.income)}
+                  tone="income"
+                  icon={<ArrowUpRight />}
+                />
+                <StatCard
+                  label="Расходы"
+                  value={money(totals.expense)}
+                  tone="expense"
+                  icon={<ArrowDownRight />}
+                />
+                <StatCard
+                  label="Остаток"
+                  value={money(net)}
+                  tone={net >= 0 ? "income" : "expense"}
+                  icon={<CircleDollarSign />}
+                />
+                <StatCard
+                  label="Норма сбережений"
+                  value={`${savingsRate.toFixed(0)}%`}
+                  tone="blue"
+                  icon={<Target />}
+                />
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+      {mode !== "filters" && (
+        <section className="surface operations-card">
+          <div className="section-heading">
+            <div>
+              <h2>Операции за период</h2>
+              <p>
+                {selectedAccount
+                  ? `${selectedAccount.name} · ${selectedAccount.currency}`
+                  : dateRangeLabel(dateRange)}
+              </p>
+            </div>
+            <button className="primary-button" onClick={add}>
+              <Plus size={18} /> Добавить
+            </button>
+          </div>
+          <div className="operations-list full">
+            {items.length ? (
+              groupedItems.map(([date, dateItems]) => (
+                <section className="operation-date-group" key={date}>
+                  <header>
+                    <strong>{dateLabel(date, true)}</strong>
+                    <span>{dateItems.length} оп.</span>
+                  </header>
+                  {dateItems.map((item) => (
+                    <OperationRow
+                      data={data}
+                      item={item}
+                      onClick={() => edit(item)}
+                      key={item.id}
+                    />
+                  ))}
+                </section>
+              ))
+            ) : (
+              <div className="empty">
+                <Search />
+                <strong>Ничего не найдено</strong>
+                <span>Измените фильтры или добавьте операцию</span>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
 
 function Analytics({
   data,
-  selectedMonth,
+  dateRange,
+  onDateRangeChange,
   edit,
+  add,
 }: {
   data: AppData;
-  selectedMonth: string;
+  dateRange: DateRange;
+  onDateRangeChange: (value: DateRange) => void;
   edit: (item: Transaction) => void;
+  add: () => void;
 }) {
-  const [cashflowPeriod, setCashflowPeriod] = useState<CashflowPeriod>(6);
-  const stats = statsFor(data, selectedMonth);
-  const previous = statsFor(data, prevMonth(selectedMonth));
+  const [filters, setFilters] = useState<TransactionFilters>(
+    defaultTransactionFilters,
+  );
+  const filteredTransactions = useMemo(
+    () => filterTransactions(data, dateRange, filters),
+    [data, dateRange, filters],
+  );
+  const currentRange = useMemo(
+    () => resolvedDateRange(dateRange, filteredTransactions),
+    [dateRange, filteredTransactions],
+  );
+  const previousRange = previousDateRange(currentRange);
+  const previousTransactions = useMemo(
+    () => filterTransactions(data, previousRange, filters),
+    [data, filters, previousRange.from, previousRange.to],
+  );
+  const filteredData = useMemo(
+    () => ({ ...data, transactions: filteredTransactions }),
+    [data, filteredTransactions],
+  );
+  const stats = statsForTransactions(filteredTransactions);
+  const previous = statsForTransactions(previousTransactions);
   const net = stats.income - stats.expense;
   const savingsRate = stats.income ? (net / stats.income) * 100 : 0;
-  const expenses = data.transactions.filter(
-    (item) =>
-      item.date.startsWith(selectedMonth) &&
-      item.type === "expense" &&
-      item.fromCurrency === "RUB",
+  const expenses = filteredTransactions.filter(
+    (item) => item.type === "expense" && item.fromCurrency === "RUB",
   );
-  const incomeCategories = categoryStats(data, selectedMonth, "income");
-  const expenseCategories = categoryStats(data, selectedMonth);
+  const incomeCategories = categoryStatsForRange(
+    filteredData,
+    currentRange.from,
+    currentRange.to,
+    "income",
+  );
+  const expenseCategories = categoryStatsForRange(
+    filteredData,
+    currentRange.from,
+    currentRange.to,
+  );
   const top = expenseCategories[0];
   const largest = [...expenses]
     .sort((a, b) => b.fromAmount - a.fromAmount)
@@ -1388,48 +1727,27 @@ function Analytics({
   const change = previous.expense
     ? ((stats.expense - previous.expense) / previous.expense) * 100
     : 0;
-  const cashflowPeriodTitle =
-    cashflowPeriods.find((item) => item.value === cashflowPeriod)?.title ||
-    "6 месяцев";
   return (
     <div className="analytics-page">
-      <div className="analytics-kpis">
-        <StatCard
-          label="Доходы"
-          value={money(stats.income)}
-          tone="income"
-          icon={<ArrowUpRight />}
-        />
-        <StatCard
-          label="Расходы"
-          value={money(stats.expense)}
-          tone="expense"
-          icon={<ArrowDownRight />}
-        />
-        <StatCard
-          label="Остаток"
-          value={money(net)}
-          tone={net >= 0 ? "income" : "expense"}
-          icon={<CircleDollarSign />}
-        />
-        <StatCard
-          label="Норма сбережений"
-          value={`${savingsRate.toFixed(0)}%`}
-          tone="blue"
-          icon={<Target />}
+      <div className="analytics-filters">
+        <Transactions
+          data={data}
+          dateRange={dateRange}
+          onDateRangeChange={onDateRangeChange}
+          filters={filters}
+          onFiltersChange={setFilters}
+          edit={edit}
+          add={add}
+          mode="filters"
         />
       </div>
       <section className="surface analytics-wide">
         <div className="section-heading">
           <div>
             <h2>Динамика денежных потоков</h2>
-            <p>Полная картина за {cashflowPeriodTitle}</p>
+            <p>Полная картина: {dateRangeLabel(dateRange)}</p>
           </div>
           <div className="chart-heading-tools">
-            <CashflowPeriodControl
-              value={cashflowPeriod}
-              onChange={setCashflowPeriod}
-            />
             <div className="legend">
               <span className="income">Доходы</span>
               <span className="expense">Расходы</span>
@@ -1437,20 +1755,17 @@ function Analytics({
           </div>
         </div>
         <CashflowChart
-          data={data}
-          selectedMonth={selectedMonth}
-          period={cashflowPeriod}
+          data={filteredData}
+          selectedMonth={currentRange.to.slice(0, 7)}
+          dateRange={currentRange}
         />
       </section>
       <div className="analytics-column">
         <section className="surface month-comparison">
           <div className="section-heading">
             <div>
-              <h2>Сравнение с прошлым месяцем</h2>
-              <p>
-                {monthLabel(selectedMonth)} и{" "}
-                {monthLabel(prevMonth(selectedMonth)).toLowerCase()}
-              </p>
+              <h2>Сравнение с предыдущим периодом</h2>
+              <p>{dateRangeLabel(previousRange)}</p>
             </div>
           </div>
           <div className="comparison-list">
@@ -1527,8 +1842,7 @@ function Analytics({
                   {Math.abs(change).toFixed(0)}%
                 </strong>
                 <span>
-                  Сравнение с{" "}
-                  {monthLabel(prevMonth(selectedMonth)).toLowerCase()}.
+                  Сравнение с предыдущими {dateRangeDays(currentRange)} дн.
                 </span>
               </div>
             </article>
@@ -1563,7 +1877,7 @@ function Analytics({
           <div className="section-heading">
             <div>
               <h2>Крупнейшие расходы</h2>
-              <p>Операции, сильнее всего повлиявшие на месяц</p>
+              <p>Операции, сильнее всего повлиявшие на период</p>
             </div>
           </div>
           <div className="operations-list">
@@ -1583,10 +1897,14 @@ function Analytics({
           <div className="section-heading">
             <div>
               <h2>Категории расходов</h2>
-              <p>{monthLabel(selectedMonth)}</p>
+              <p>{dateRangeLabel(dateRange)}</p>
             </div>
           </div>
-          <Donut data={data} selectedMonth={selectedMonth} />
+          <Donut
+            data={filteredData}
+            selectedMonth={currentRange.to.slice(0, 7)}
+            dateRange={currentRange}
+          />
         </section>
         <section className="surface income-sources">
           <div className="section-heading">
@@ -1605,7 +1923,7 @@ function Analytics({
                 </div>
               ))
             ) : (
-              <span className="muted">Доходов в этом месяце нет</span>
+              <span className="muted">Доходов за этот период нет</span>
             )}
           </div>
         </section>
@@ -2206,10 +2524,14 @@ function SettingsPage({
   data,
   onData,
   onLogout,
+  fontScale,
+  onFontScaleChange,
 }: {
   data: AppData;
   onData: (value: AppData) => void | Promise<void>;
   onLogout: () => void;
+  fontScale: FontScale;
+  onFontScaleChange: (value: FontScale) => void;
 }) {
   const importRef = useRef<HTMLInputElement>(null);
   const csvImportRef = useRef<HTMLInputElement>(null);
@@ -2225,6 +2547,49 @@ function SettingsPage({
   };
   return (
     <div className="settings-grid">
+      <section className="surface settings-section appearance-settings">
+        <h2>Внешний вид</h2>
+        <div className="font-scale-setting">
+          <div>
+            <strong>Масштаб текста</strong>
+            <small>
+              Меняйте размер шагами по 10%. Настройка сохранится в этом
+              браузере.
+            </small>
+          </div>
+          <div
+            className="font-scale-control"
+            role="group"
+            aria-label="Масштаб текста"
+          >
+            <button
+              type="button"
+              aria-label="Уменьшить масштаб текста"
+              disabled={fontScale <= fontScaleMin}
+              onClick={() =>
+                onFontScaleChange(
+                  Math.max(fontScaleMin, fontScale - fontScaleStep),
+                )
+              }
+            >
+              −
+            </button>
+            <output aria-live="polite">{fontScale}%</output>
+            <button
+              type="button"
+              aria-label="Увеличить масштаб текста"
+              disabled={fontScale >= fontScaleMax}
+              onClick={() =>
+                onFontScaleChange(
+                  Math.min(fontScaleMax, fontScale + fontScaleStep),
+                )
+              }
+            >
+              +
+            </button>
+          </div>
+        </div>
+      </section>
       <section className="surface settings-section">
         <h2>Данные и резервные копии</h2>
         <button onClick={exportData}>
@@ -2366,16 +2731,37 @@ export default function App() {
   const [route, setRoute] = useState<Route>(routeFromHash);
   const [selectedMonth, setSelectedMonth] = useState("");
   const [monthOpen, setMonthOpen] = useState(false);
+  const [dateRange, setDateRange] = useState<{
+    route: Route;
+    value: DateRange;
+  } | null>(null);
+  const [fontScale, setFontScale] = useState<FontScale>(savedFontScale);
   const [transaction, setTransaction] = useState<
     Transaction | null | undefined
   >(undefined);
   const [mobileMenu, setMobileMenu] = useState(false);
   const [globalSearch, setGlobalSearch] = useState(false);
   const [balanceAccount, setBalanceAccount] = useState<Account | undefined>();
-  const [transactionAccountId, setTransactionAccountId] = useState("all");
+  const [transactionFilters, setTransactionFilters] =
+    useState<TransactionFilters>(defaultTransactionFilters);
   useBodyScrollLock(
     transaction !== undefined || globalSearch || Boolean(balanceAccount),
   );
+  useEffect(() => {
+    document.documentElement.dataset.fontScale = String(fontScale);
+    document.documentElement.style.setProperty(
+      "--font-adjust",
+      `${((fontScale - 100) / fontScaleStep) * 1.15}px`,
+    );
+    try {
+      localStorage.setItem(fontScaleStorageKey, String(fontScale));
+    } catch {
+      // The setting still applies for this session when storage is restricted.
+    }
+  }, [fontScale]);
+  useEffect(() => {
+    setDateRange(null);
+  }, [route]);
   useEffect(() => {
     return observeAuth((currentUser) => {
       setUser(currentUser);
@@ -2432,9 +2818,11 @@ export default function App() {
     return () => removeEventListener("hashchange", syncRoute);
   }, []);
   const navigate = (value: Route) => {
+    setDateRange(null);
     setRoute(value);
     location.hash = value;
     setMobileMenu(false);
+    setMonthOpen(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
   if (!authReady)
@@ -2509,6 +2897,7 @@ export default function App() {
   ]
     .sort()
     .reverse();
+  if (!months.includes(selectedMonth)) months.unshift(selectedMonth);
   const title = {
     overview: "Обзор",
     transactions: "Операции",
@@ -2525,6 +2914,14 @@ export default function App() {
   const saveData = (value: AppData) => {
     void persistData(value);
   };
+  const effectiveDateRange =
+    dateRange?.route === route
+      ? dateRange.value
+      : monthDateRange(selectedMonth);
+  const changeDateRange = (value: DateRange) => {
+    setDateRange({ route, value });
+  };
+  const showMonthPeriod = route === "budgets" || route === "accounts";
   return (
     <div className="app">
       <aside className={`sidebar ${mobileMenu ? "mobile-open" : ""}`}>
@@ -2593,15 +2990,55 @@ export default function App() {
               <Menu />
             </button>
             <div className="period-wrap">
-              <button
-                className="period-trigger"
-                onClick={() => setMonthOpen(!monthOpen)}
-              >
-                {monthLabel(selectedMonth)}
-                <ChevronDown size={15} />
-              </button>
-              {monthOpen && (
+              {showMonthPeriod && (
+                <div className="period-control">
+                  <button
+                    type="button"
+                    className="period-step"
+                    aria-label="Предыдущий месяц"
+                    onClick={() =>
+                      setSelectedMonth(shiftMonth(selectedMonth, -1))
+                    }
+                  >
+                    <ChevronLeft />
+                  </button>
+                  <button
+                    type="button"
+                    className="period-trigger"
+                    aria-expanded={monthOpen}
+                    onClick={() => setMonthOpen(!monthOpen)}
+                  >
+                    <CalendarDays />
+                    {monthLabel(selectedMonth)}
+                    <ChevronDown />
+                  </button>
+                  <button
+                    type="button"
+                    className="period-step"
+                    aria-label="Следующий месяц"
+                    onClick={() =>
+                      setSelectedMonth(shiftMonth(selectedMonth, 1))
+                    }
+                  >
+                    <ChevronRight />
+                  </button>
+                </div>
+              )}
+              {showMonthPeriod && monthOpen && (
                 <div className="month-menu">
+                  <label className="month-picker-field">
+                    <span>Выбрать месяц</span>
+                    <input
+                      type="month"
+                      value={selectedMonth}
+                      onInput={(event) => {
+                        if (!event.currentTarget.value) return;
+                        setSelectedMonth(event.currentTarget.value);
+                        setMonthOpen(false);
+                      }}
+                    />
+                  </label>
+                  <div className="month-menu-caption">Месяцы с операциями</div>
                   {months.map((month) => (
                     <button
                       key={month}
@@ -2648,9 +3085,10 @@ export default function App() {
           {route === "transactions" && (
             <Transactions
               data={data}
-              selectedMonth={selectedMonth}
-              accountId={transactionAccountId}
-              onAccountChange={setTransactionAccountId}
+              dateRange={effectiveDateRange}
+              onDateRangeChange={changeDateRange}
+              filters={transactionFilters}
+              onFiltersChange={setTransactionFilters}
               edit={setTransaction}
               add={() => setTransaction(null)}
             />
@@ -2658,8 +3096,10 @@ export default function App() {
           {route === "analytics" && (
             <Analytics
               data={data}
-              selectedMonth={selectedMonth}
+              dateRange={effectiveDateRange}
+              onDateRangeChange={changeDateRange}
               edit={setTransaction}
+              add={() => setTransaction(null)}
             />
           )}{" "}
           {/* Страница GPT временно отключена для пользователей. */}
@@ -2682,7 +3122,10 @@ export default function App() {
               selectedMonth={selectedMonth}
               onEditBalance={setBalanceAccount}
               onViewTransactions={(account) => {
-                setTransactionAccountId(account.id);
+                setTransactionFilters((current) => ({
+                  ...current,
+                  accountId: account.id,
+                }));
                 navigate("transactions");
               }}
               onChange={persistData}
@@ -2691,6 +3134,8 @@ export default function App() {
           {route === "settings" && (
             <SettingsPage
               data={data}
+              fontScale={fontScale}
+              onFontScaleChange={setFontScale}
               onData={(value) => {
                 const saving = saveData(value);
                 setSelectedMonth(

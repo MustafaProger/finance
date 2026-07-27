@@ -1,10 +1,11 @@
-const CACHE = "kapital-v6";
+const CACHE = "kapital-v7";
 const CORE = [
   "/",
-  "/manifest.webmanifest?v=3",
-  "/icons/app-icon.svg?v=3",
+  "/manifest.webmanifest?v=4",
+  "/icons/app-icon.svg?v=4",
   "/icons/app-icon-192.png",
   "/icons/app-icon-512.png",
+  "/icons/apple-touch-icon.png?v=4",
 ];
 
 self.addEventListener("install", (event) => {
