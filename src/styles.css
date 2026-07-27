@@ -1309,6 +1309,19 @@ textarea:focus-visible {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
+.filter-fields.is-compact {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.filter-fields.is-compact .filter-toolbar,
+.filter-fields.is-compact .filter-selects,
+.filter-fields.is-compact .date-range-control {
+  display: contents;
+}
+.filter-fields.is-compact .filter-selects {
+  margin-top: 0;
+}
 .date-filter {
   min-width: 0;
   height: 48px;
@@ -3688,6 +3701,21 @@ textarea:focus-visible {
   .transaction-stats {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+  .filter-fields.is-compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .analytics-filters .transaction-stats {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+  .analytics-filters .transaction-stats > .stat-card {
+    grid-column: span 2;
+  }
+  .analytics-filters .transaction-stats > .stat-card:nth-child(4) {
+    grid-column: 2 / span 2;
+  }
+  .analytics-filters .transaction-stats > .stat-card:nth-child(5) {
+    grid-column: 4 / span 2;
+  }
   .savings-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -4033,6 +4061,19 @@ textarea:focus-visible {
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+  .filter-fields.is-compact {
+    grid-template-columns: 1fr;
+  }
+  .analytics-filters .transaction-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .analytics-filters .transaction-stats > .stat-card,
+  .analytics-filters .transaction-stats > .stat-card:nth-child(4) {
+    grid-column: auto;
+  }
+  .analytics-filters .transaction-stats > .stat-card:last-child {
+    grid-column: 1 / -1;
   }
   .filter-toggle > span {
     min-width: 0;

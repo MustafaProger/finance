@@ -1525,67 +1525,75 @@ function Transactions({
             }}
           >
             <div className="filter-card-collapse-inner">
-              <div className="filter-toolbar">
-                <DateRangeFields
-                  value={dateRange}
-                  onChange={onDateRangeChange}
-                />
-                <label className="search-box">
-                  <Search size={19} />
-                  <input
-                    value={filters.query}
-                    onChange={(event) =>
-                      onFiltersChange({
-                        ...filters,
-                        query: event.target.value,
-                      })
-                    }
-                    placeholder="Поиск по операциям"
+              <div
+                className={`filter-fields ${mode === "filters" ? "is-compact" : ""}`}
+              >
+                <div className="filter-toolbar">
+                  <DateRangeFields
+                    value={dateRange}
+                    onChange={onDateRangeChange}
                   />
-                </label>
-              </div>
-              <div className="filter-selects">
-                <Select
-                  label="Все типы"
-                  value={filters.type}
-                  onChange={(type) => onFiltersChange({ ...filters, type })}
-                  options={[
-                    { value: "all", label: "Все типы" },
-                    { value: "expense", label: "Расходы" },
-                    { value: "income", label: "Доходы" },
-                    { value: "transfer", label: "Переводы" },
-                  ]}
-                />
-                <Select
-                  label="Все категории"
-                  value={filters.categoryId}
-                  onChange={(categoryId) =>
-                    onFiltersChange({ ...filters, categoryId })
-                  }
-                  options={[
-                    { value: "all", label: "Все категории" },
-                    ...data.categories
-                      .filter((item) => item.type !== "income")
-                      .map((item) => ({
+                  {mode !== "filters" && (
+                    <label className="search-box">
+                      <Search size={19} />
+                      <input
+                        value={filters.query}
+                        onChange={(event) =>
+                          onFiltersChange({
+                            ...filters,
+                            query: event.target.value,
+                          })
+                        }
+                        placeholder="Поиск по операциям"
+                      />
+                    </label>
+                  )}
+                </div>
+                <div className="filter-selects">
+                  {mode !== "filters" && (
+                    <Select
+                      label="Все типы"
+                      value={filters.type}
+                      onChange={(type) => onFiltersChange({ ...filters, type })}
+                      options={[
+                        { value: "all", label: "Все типы" },
+                        { value: "expense", label: "Расходы" },
+                        { value: "income", label: "Доходы" },
+                        { value: "transfer", label: "Переводы" },
+                      ]}
+                    />
+                  )}
+                  <Select
+                    label="Все категории"
+                    value={filters.categoryId}
+                    onChange={(categoryId) =>
+                      onFiltersChange({ ...filters, categoryId })
+                    }
+                    options={[
+                      { value: "all", label: "Все категории" },
+                      ...data.categories
+                        .filter((item) => item.type !== "income")
+                        .map((item) => ({
+                          value: item.id,
+                          label: item.name,
+                        })),
+                    ]}
+                  />
+                  <Select
+                    label="Все счета"
+                    value={filters.accountId}
+                    onChange={(accountId) =>
+                      onFiltersChange({ ...filters, accountId })
+                    }
+                    options={[
+                      { value: "all", label: "Все счета и карты" },
+                      ...data.accounts.map((item) => ({
                         value: item.id,
-                        label: item.name,
+                        label: `${item.name} · ${item.currency}`,
                       })),
-                  ]}
-                />
-                <Select
-                  label="Все счета"
-                  value={filters.accountId}
-                  onChange={(accountId) =>
-                    onFiltersChange({ ...filters, accountId })
-                  }
-                  options={[
-                    { value: "all", label: "Все счета и карты" },
-                    ...data.accounts.map((item) => ({
-                      value: item.id,
-                      label: `${item.name} · ${item.currency}`,
-                    })),
-                  ]}
-                />
+                    ]}
+                  />
+                </div>
               </div>
               <div className="stats-row transaction-stats">
                 <StatCard
