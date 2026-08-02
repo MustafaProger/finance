@@ -251,6 +251,20 @@ function amountExpressionHasOperator(value: string) {
   return /[+*/×÷хХ]/.test(value) || /[−–—-]/.test(value.slice(1));
 }
 
+function operationsLabel(count: number) {
+  const remainder100 = count % 100;
+  const remainder10 = count % 10;
+  const word =
+    remainder100 >= 11 && remainder100 <= 14
+      ? "операций"
+      : remainder10 === 1
+        ? "операция"
+        : remainder10 >= 2 && remainder10 <= 4
+          ? "операции"
+          : "операций";
+  return `${count} ${word}`;
+}
+
 const cashflowPeriods: {
   value: CashflowPeriod;
   label: string;
@@ -1617,20 +1631,40 @@ function Transactions({
   );
   const net = totals.income - totals.expense;
   const savingsRate = totals.income ? (net / totals.income) * 100 : 0;
-  const groupedItems = useMemo(() => {
-    const byDate = new Map<string, Transaction[]>();
-    [...items]
-      .sort(
-        (left, right) =>
-          right.date.localeCompare(left.date) ||
-          compareTransactionsNewest(left, right),
-      )
-      .forEach((item) => {
-        const group = byDate.get(item.date) || [];
-        group.push(item);
-        byDate.set(item.date, group);
-      });
-    return [...byDate.entries()];
+  const monthlyGroups = useMemo(() => {
+    const byMonth = new Map<
+      string,
+      {
+        month: string;
+        income: number;
+        expense: number;
+        count: number;
+        dates: Map<string, Transaction[]>;
+      }
+    >();
+    items.forEach((item) => {
+      const month = item.date.slice(0, 7);
+      const monthGroup = byMonth.get(month) || {
+        month,
+        income: 0,
+        expense: 0,
+        count: 0,
+        dates: new Map<string, Transaction[]>(),
+      };
+      if (item.type === "income" && item.toCurrency === "RUB")
+        monthGroup.income += Number(item.toAmount || 0);
+      if (item.type === "expense" && item.fromCurrency === "RUB")
+        monthGroup.expense += Number(item.fromAmount || 0);
+      monthGroup.count += 1;
+      const dateGroup = monthGroup.dates.get(item.date) || [];
+      dateGroup.push(item);
+      monthGroup.dates.set(item.date, dateGroup);
+      byMonth.set(month, monthGroup);
+    });
+    return [...byMonth.values()].map((group) => ({
+      ...group,
+      dates: [...group.dates.entries()],
+    }));
   }, [items]);
   return (
     <div className="page-stack">
@@ -1650,7 +1684,7 @@ function Transactions({
               <p>{dateRangeLabel(dateRange)}</p>
             </div>
             <div className="filter-card-actions">
-              <span>{items.length} операций</span>
+              <span>{operationsLabel(items.length)}</span>
               <button
                 type="button"
                 className="filter-toggle"
@@ -1774,20 +1808,48 @@ function Transactions({
           </div>
           <div className="operations-list full">
             {items.length ? (
-              groupedItems.map(([date, dateItems]) => (
-                <section className="operation-date-group" key={date}>
-                  <header>
-                    <strong>{dateLabel(date, true)}</strong>
-                    <span>{dateItems.length} оп.</span>
+              monthlyGroups.map((monthGroup) => (
+                <section
+                  className="operation-month-group"
+                  data-month={monthGroup.month}
+                  key={monthGroup.month}
+                >
+                  <header
+                    className="operation-month-summary"
+                    aria-label={`Сводка за ${monthLabel(monthGroup.month)}`}
+                  >
+                    <div className="operation-month-title">
+                      <span>Месяц</span>
+                      <h3>{monthLabel(monthGroup.month)}</h3>
+                      <small>{operationsLabel(monthGroup.count)}</small>
+                    </div>
+                    <div className="operation-month-metric expense">
+                      <span>Потратили</span>
+                      <strong>{money(monthGroup.expense)}</strong>
+                    </div>
+                    <div className="operation-month-metric income">
+                      <span>Получили</span>
+                      <strong>{money(monthGroup.income)}</strong>
+                    </div>
                   </header>
-                  {dateItems.map((item) => (
-                    <OperationRow
-                      data={data}
-                      item={item}
-                      onClick={() => edit(item)}
-                      key={item.id}
-                    />
-                  ))}
+                  <div className="operation-month-dates">
+                    {monthGroup.dates.map(([date, dateItems]) => (
+                      <section className="operation-date-group" key={date}>
+                        <header>
+                          <strong>{dateLabel(date, true)}</strong>
+                          <span>{dateItems.length} оп.</span>
+                        </header>
+                        {dateItems.map((item) => (
+                          <OperationRow
+                            data={data}
+                            item={item}
+                            onClick={() => edit(item)}
+                            key={item.id}
+                          />
+                        ))}
+                      </section>
+                    ))}
+                  </div>
                 </section>
               ))
             ) : (

@@ -1509,6 +1509,92 @@ textarea:focus-visible {
   min-height: 67px;
   padding-inline: 12px;
 }
+.operation-month-group {
+  min-width: 0;
+  position: relative;
+}
+.operation-month-group + .operation-month-group {
+  margin-top: 18px;
+}
+.operation-month-summary {
+  position: sticky;
+  z-index: 8;
+  top: 12px;
+  margin-bottom: 14px;
+  padding: 11px;
+  display: grid;
+  grid-template-columns: minmax(170px, 1.35fr) repeat(2, minmax(145px, 1fr));
+  gap: 9px;
+  border: 1px solid rgba(96, 165, 250, 0.2);
+  border-radius: 19px;
+  background: rgba(11, 20, 35, 0.94);
+  box-shadow:
+    0 14px 35px rgba(0, 0, 0, 0.28),
+    inset 0 1px rgba(255, 255, 255, 0.035);
+  backdrop-filter: blur(18px);
+}
+.operation-month-title,
+.operation-month-metric {
+  min-width: 0;
+  min-height: 64px;
+  padding: 10px 12px;
+  display: grid;
+  align-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.025);
+}
+.operation-month-title {
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 10px;
+}
+.operation-month-title > span,
+.operation-month-metric > span {
+  color: var(--muted);
+  font-size: calc(8px + var(--font-adjust));
+  font-weight: 700;
+}
+.operation-month-title h3 {
+  min-width: 0;
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: #eef4fc;
+  font-size: calc(15px + var(--font-adjust));
+  letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.operation-month-title small {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  padding: 6px 8px;
+  border-radius: 9px;
+  color: #8fbaff;
+  background: rgba(59, 130, 246, 0.08);
+  font-size: calc(8px + var(--font-adjust));
+  font-weight: 750;
+  white-space: nowrap;
+}
+.operation-month-metric {
+  gap: 4px;
+}
+.operation-month-metric strong {
+  overflow: hidden;
+  font-size: calc(16px + var(--font-adjust));
+  letter-spacing: -0.025em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.operation-month-metric.expense strong {
+  color: var(--red);
+}
+.operation-month-metric.income strong {
+  color: var(--green);
+}
+.operation-month-dates {
+  min-width: 0;
+}
 .operation-date-group + .operation-date-group {
   margin-top: 18px;
 }
@@ -4235,6 +4321,26 @@ textarea:focus-visible {
   .operation-row {
     padding-inline: 3px;
     gap: 10px;
+  }
+  .operation-month-summary {
+    top: max(8px, env(safe-area-inset-top));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 9px;
+    border-radius: 17px;
+  }
+  .operation-month-title {
+    grid-column: 1 / -1;
+    min-height: 52px;
+  }
+  .operation-month-metric {
+    min-height: 58px;
+    padding: 9px 10px;
+  }
+  .operation-month-title h3 {
+    font-size: calc(14px + var(--font-adjust));
+  }
+  .operation-month-metric strong {
+    font-size: calc(14px + var(--font-adjust));
   }
   .operation-copy strong {
     font-size: calc(11px + var(--font-adjust));
