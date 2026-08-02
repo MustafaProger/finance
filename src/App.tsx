@@ -158,6 +158,13 @@ const fontScaleMin = 80;
 const fontScaleMax = 150;
 const fontScaleStep = 10;
 const fontScaleStorageKey = "kapital-font-scale-v1";
+const filtersExpandedStorageKey = "kapital-filters-expanded-v1";
+const amountOperators = [
+  { value: "+", label: "Прибавить" },
+  { value: "−", label: "Вычесть" },
+  { value: "×", label: "Умножить" },
+  { value: "÷", label: "Разделить" },
+] as const;
 
 function savedFontScale(): FontScale {
   try {
@@ -170,6 +177,78 @@ function savedFontScale(): FontScale {
   } catch {
     return 100;
   }
+}
+
+function savedFiltersExpanded() {
+  try {
+    const saved = localStorage.getItem(filtersExpandedStorageKey);
+    return saved === null ? true : saved === "true";
+  } catch {
+    return true;
+  }
+}
+
+function calculateAmount(expression: string) {
+  const source = expression
+    .replace(/,/g, ".")
+    .replace(/[−–—]/g, "-")
+    .replace(/[×хХ]/g, "*")
+    .replace(/÷/g, "/")
+    .replace(/\s+/g, "");
+  if (!source || !/^[\d.+\-*/()]+$/.test(source)) return null;
+
+  let position = 0;
+  const number = () => {
+    const match = source.slice(position).match(/^(?:\d+(?:\.\d*)?|\.\d+)/);
+    if (!match) throw new Error("number");
+    position += match[0].length;
+    return Number(match[0]);
+  };
+  const primary = (): number => {
+    if (source[position] === "+" || source[position] === "-") {
+      const sign = source[position++];
+      const value = primary();
+      return sign === "-" ? -value : value;
+    }
+    if (source[position] === "(") {
+      position += 1;
+      const value = expressionValue();
+      if (source[position] !== ")") throw new Error("parenthesis");
+      position += 1;
+      return value;
+    }
+    return number();
+  };
+  const product = () => {
+    let value = primary();
+    while (source[position] === "*" || source[position] === "/") {
+      const operator = source[position++];
+      const next = primary();
+      value = operator === "*" ? value * next : value / next;
+    }
+    return value;
+  };
+  const expressionValue = () => {
+    let value = product();
+    while (source[position] === "+" || source[position] === "-") {
+      const operator = source[position++];
+      const next = product();
+      value = operator === "+" ? value + next : value - next;
+    }
+    return value;
+  };
+
+  try {
+    const value = expressionValue();
+    if (position !== source.length || !Number.isFinite(value)) return null;
+    return Math.round((value + Number.EPSILON) * 100) / 100;
+  } catch {
+    return null;
+  }
+}
+
+function amountExpressionHasOperator(value: string) {
+  return /[+*/×÷хХ]/.test(value) || /[−–—-]/.test(value.slice(1));
 }
 
 const cashflowPeriods: {
@@ -251,9 +330,9 @@ function previousDateRange(range: DateRange): DateRange {
 
 function dateRangeLabel(range: DateRange) {
   if (range.from && !range.to)
-    return `${dateLabel(range.from, true)} — по сегодняшний день`;
-  if (!range.from && range.to) return `С начала — ${dateLabel(range.to, true)}`;
-  if (!range.from && !range.to) return "С начала — по сегодняшний день";
+    return `${dateLabel(range.from, true)} — без конечной даты`;
+  if (!range.from && range.to) return `До ${dateLabel(range.to, true)}`;
+  if (!range.from && !range.to) return "За всё время";
   if (range.from === range.to) return dateLabel(range.from, true);
   return `${dateLabel(range.from, true)} — ${dateLabel(range.to, true)}`;
 }
@@ -263,7 +342,6 @@ function filterTransactions(
   range: DateRange,
   filters: TransactionFilters,
 ) {
-  const upperBound = range.to || todayDate();
   const selectedAccount = data.accounts.find(
     (item) => item.id === filters.accountId,
   );
@@ -271,7 +349,8 @@ function filterTransactions(
   return data.transactions
     .filter(
       (item) =>
-        (!range.from || item.date >= range.from) && item.date <= upperBound,
+        (!range.from || item.date >= range.from) &&
+        (!range.to || item.date <= range.to),
     )
     .filter(
       (item) =>
@@ -970,6 +1049,7 @@ function TransactionModal({
   const [amount, setAmount] = useState(
     String(transaction ? amountOf(transaction) : ""),
   );
+  const [amountError, setAmountError] = useState(false);
   const [categoryId, setCategoryId] = useState(
     transaction?.categoryId ||
       data.categories.find((item) => item.type !== "income")?.id ||
@@ -1024,9 +1104,33 @@ function TransactionModal({
     if (!transferAccounts.some((item) => item.name === toAccount))
       setToAccount(transferAccounts[0]?.name || "");
   }, [type, fromAccount, toAccount]);
+  const calculatedAmount = useMemo(() => calculateAmount(amount), [amount]);
+  const hasAmountExpression = amountExpressionHasOperator(amount);
+  const showAmountCalculation =
+    calculatedAmount !== null && hasAmountExpression;
+  const applyAmountCalculation = () => {
+    if (calculatedAmount === null) {
+      setAmountError(true);
+      return;
+    }
+    setAmount(String(calculatedAmount));
+    setAmountError(false);
+  };
+  const appendAmountOperator = (operator: string) => {
+    setAmount((current) => {
+      const value = current.trimEnd();
+      if (!value) return operator === "−" ? "−" : value;
+      if (/[+−×÷*/-]$/.test(value)) return `${value.slice(0, -1)}${operator} `;
+      return `${value} ${operator} `;
+    });
+    setAmountError(false);
+  };
   const save = () => {
-    const value = Number(amount);
-    if (!value || value <= 0) return;
+    const value = calculatedAmount;
+    if (!value || value <= 0) {
+      setAmountError(true);
+      return;
+    }
     const source =
       data.accounts.find((item) => item.name === fromAccount) ||
       data.accounts[0];
@@ -1108,19 +1212,69 @@ function TransactionModal({
             Сохранить
           </button>
         </header>
-        <div className={`amount-entry ${type}`}>
+        <div
+          className={`amount-entry ${type} ${hasAmountExpression ? "has-expression" : ""}`}
+        >
           <span>{type === "expense" ? "−" : type === "income" ? "+" : ""}</span>
           <input
             autoFocus
             inputMode="decimal"
-            type="number"
-            min="0"
-            step="0.01"
+            type="text"
             value={amount}
-            onChange={(event) => setAmount(event.target.value)}
+            onChange={(event) => {
+              setAmount(event.target.value);
+              setAmountError(false);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "=") {
+                event.preventDefault();
+                applyAmountCalculation();
+              }
+            }}
             placeholder="0"
+            aria-label="Сумма или математическое выражение"
+            aria-invalid={amountError}
+            aria-describedby="amount-calculation-status"
           />
           <b>{currencyMark(sourceAccount?.currency || "RUB")}</b>
+        </div>
+        <div className="amount-calculator">
+          <div
+            id="amount-calculation-status"
+            className={`amount-calculation-status ${amountError ? "is-error" : ""}`}
+            aria-live="polite"
+          >
+            {amountError
+              ? "Проверьте выражение: результат должен быть больше нуля"
+              : showAmountCalculation
+                ? `Результат: ${money(calculatedAmount, sourceAccount?.currency || "RUB")}`
+                : "Можно считать прямо здесь, например 1200 + 350 × 2"}
+          </div>
+          <div
+            className="amount-operator-buttons"
+            role="group"
+            aria-label="Математические действия"
+          >
+            {amountOperators.map((operator) => (
+              <button
+                type="button"
+                key={operator.value}
+                aria-label={operator.label}
+                onClick={() => appendAmountOperator(operator.value)}
+              >
+                {operator.value}
+              </button>
+            ))}
+            <button
+              type="button"
+              className="amount-equals"
+              onClick={applyAmountCalculation}
+              disabled={calculatedAmount === null}
+              aria-label="Вычислить результат"
+            >
+              =
+            </button>
+          </div>
         </div>
         {type !== "transfer" && (
           <div className="category-picker">
@@ -1424,6 +1578,8 @@ function Transactions({
   onFiltersChange,
   edit,
   add,
+  filtersExpanded,
+  onFiltersExpandedChange,
   mode = "full",
 }: {
   data: AppData;
@@ -1433,11 +1589,12 @@ function Transactions({
   onFiltersChange: (value: TransactionFilters) => void;
   edit: (item: Transaction) => void;
   add: () => void;
+  filtersExpanded: boolean;
+  onFiltersExpandedChange: (value: boolean) => void;
   mode?: "full" | "filters" | "list";
 }) {
-  const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [filtersExpansionSettled, setFiltersExpansionSettled] =
-    useState(false);
+    useState(filtersExpanded);
   const selectedAccount = data.accounts.find(
     (item) => item.id === filters.accountId,
   );
@@ -1501,7 +1658,7 @@ function Transactions({
                 aria-controls="transaction-filters"
                 onClick={() => {
                   setFiltersExpansionSettled(false);
-                  setFiltersExpanded((value) => !value);
+                  onFiltersExpandedChange(!filtersExpanded);
                 }}
               >
                 <Filter size={16} />
@@ -1525,44 +1682,14 @@ function Transactions({
             }}
           >
             <div className="filter-card-collapse-inner">
-              <div
-                className={`filter-fields ${mode === "filters" ? "is-compact" : ""}`}
-              >
+              <div className="filter-fields is-compact">
                 <div className="filter-toolbar">
                   <DateRangeFields
                     value={dateRange}
                     onChange={onDateRangeChange}
                   />
-                  {mode !== "filters" && (
-                    <label className="search-box">
-                      <Search size={19} />
-                      <input
-                        value={filters.query}
-                        onChange={(event) =>
-                          onFiltersChange({
-                            ...filters,
-                            query: event.target.value,
-                          })
-                        }
-                        placeholder="Поиск по операциям"
-                      />
-                    </label>
-                  )}
                 </div>
                 <div className="filter-selects">
-                  {mode !== "filters" && (
-                    <Select
-                      label="Все типы"
-                      value={filters.type}
-                      onChange={(type) => onFiltersChange({ ...filters, type })}
-                      options={[
-                        { value: "all", label: "Все типы" },
-                        { value: "expense", label: "Расходы" },
-                        { value: "income", label: "Доходы" },
-                        { value: "transfer", label: "Переводы" },
-                      ]}
-                    />
-                  )}
                   <Select
                     label="Все категории"
                     value={filters.categoryId}
@@ -1683,12 +1810,16 @@ function Analytics({
   onDateRangeChange,
   edit,
   add,
+  filtersExpanded,
+  onFiltersExpandedChange,
 }: {
   data: AppData;
   dateRange: DateRange;
   onDateRangeChange: (value: DateRange) => void;
   edit: (item: Transaction) => void;
   add: () => void;
+  filtersExpanded: boolean;
+  onFiltersExpandedChange: (value: boolean) => void;
 }) {
   const [filters, setFilters] = useState<TransactionFilters>(
     defaultTransactionFilters,
@@ -1746,6 +1877,8 @@ function Analytics({
           onFiltersChange={setFilters}
           edit={edit}
           add={add}
+          filtersExpanded={filtersExpanded}
+          onFiltersExpandedChange={onFiltersExpandedChange}
           mode="filters"
         />
       </div>
@@ -2744,6 +2877,7 @@ export default function App() {
     value: DateRange;
   } | null>(null);
   const [fontScale, setFontScale] = useState<FontScale>(savedFontScale);
+  const [filtersExpanded, setFiltersExpanded] = useState(savedFiltersExpanded);
   const [transaction, setTransaction] = useState<
     Transaction | null | undefined
   >(undefined);
@@ -2767,6 +2901,13 @@ export default function App() {
       // The setting still applies for this session when storage is restricted.
     }
   }, [fontScale]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(filtersExpandedStorageKey, String(filtersExpanded));
+    } catch {
+      // The setting still applies for this session when storage is restricted.
+    }
+  }, [filtersExpanded]);
   useEffect(() => {
     setDateRange(null);
   }, [route]);
@@ -2925,7 +3066,9 @@ export default function App() {
   const effectiveDateRange =
     dateRange?.route === route
       ? dateRange.value
-      : monthDateRange(selectedMonth);
+      : route === "transactions"
+        ? { from: "", to: "" }
+        : monthDateRange(selectedMonth);
   const changeDateRange = (value: DateRange) => {
     setDateRange({ route, value });
   };
@@ -3099,6 +3242,8 @@ export default function App() {
               onFiltersChange={setTransactionFilters}
               edit={setTransaction}
               add={() => setTransaction(null)}
+              filtersExpanded={filtersExpanded}
+              onFiltersExpandedChange={setFiltersExpanded}
             />
           )}{" "}
           {route === "analytics" && (
@@ -3108,6 +3253,8 @@ export default function App() {
               onDateRangeChange={changeDateRange}
               edit={setTransaction}
               add={() => setTransaction(null)}
+              filtersExpanded={filtersExpanded}
+              onFiltersExpandedChange={setFiltersExpanded}
             />
           )}{" "}
           {/* Страница GPT временно отключена для пользователей. */}

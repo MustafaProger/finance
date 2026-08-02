@@ -1673,6 +1673,63 @@ textarea:focus-visible {
 .amount-entry input::-webkit-inner-spin-button {
   appearance: none;
 }
+.amount-entry.has-expression input {
+  width: min(78%, 520px);
+  font-size: calc(clamp(30px, 5vw, 48px) + var(--font-adjust));
+  letter-spacing: -0.035em;
+}
+.amount-entry input[aria-invalid="true"] {
+  color: #fda4af;
+}
+.amount-calculator {
+  margin: -16px 18px 20px;
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+}
+.amount-calculation-status {
+  min-height: 17px;
+  color: var(--muted);
+  font-size: calc(10px + var(--font-adjust));
+  text-align: center;
+}
+.amount-calculation-status.is-error {
+  color: #fda4af;
+}
+.amount-operator-buttons {
+  display: grid;
+  grid-template-columns: repeat(5, 42px);
+  gap: 8px;
+}
+.amount-operator-buttons button {
+  width: 42px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  color: #b9c7dc;
+  background: rgba(255, 255, 255, 0.035);
+  font-size: 18px;
+  font-weight: 750;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    color 0.2s ease,
+    background 0.2s ease;
+}
+.amount-operator-buttons button:hover:not(:disabled) {
+  border-color: rgba(96, 165, 250, 0.32);
+  color: white;
+  background: rgba(59, 130, 246, 0.1);
+}
+.amount-operator-buttons .amount-equals {
+  border-color: rgba(96, 165, 250, 0.24);
+  color: #dbeafe;
+  background: rgba(59, 130, 246, 0.14);
+}
+.amount-operator-buttons button:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
 .amount-entry.expense span {
   color: var(--red);
 }
@@ -3704,16 +3761,16 @@ textarea:focus-visible {
   .filter-fields.is-compact {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .analytics-filters .transaction-stats {
+  .filters-card .transaction-stats {
     grid-template-columns: repeat(6, minmax(0, 1fr));
   }
-  .analytics-filters .transaction-stats > .stat-card {
+  .filters-card .transaction-stats > .stat-card {
     grid-column: span 2;
   }
-  .analytics-filters .transaction-stats > .stat-card:nth-child(4) {
+  .filters-card .transaction-stats > .stat-card:nth-child(4) {
     grid-column: 2 / span 2;
   }
-  .analytics-filters .transaction-stats > .stat-card:nth-child(5) {
+  .filters-card .transaction-stats > .stat-card:nth-child(5) {
     grid-column: 4 / span 2;
   }
   .savings-grid {
@@ -4065,14 +4122,14 @@ textarea:focus-visible {
   .filter-fields.is-compact {
     grid-template-columns: 1fr;
   }
-  .analytics-filters .transaction-stats {
+  .filters-card .transaction-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .analytics-filters .transaction-stats > .stat-card,
-  .analytics-filters .transaction-stats > .stat-card:nth-child(4) {
+  .filters-card .transaction-stats > .stat-card,
+  .filters-card .transaction-stats > .stat-card:nth-child(4) {
     grid-column: auto;
   }
-  .analytics-filters .transaction-stats > .stat-card:last-child {
+  .filters-card .transaction-stats > .stat-card:last-child {
     grid-column: 1 / -1;
   }
   .filter-toggle > span {
