@@ -1,16 +1,7 @@
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
-  FormEvent,
-  ReactNode,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import {
-  ArrowDownRight,
   ArrowLeft,
   ArrowRight,
-  ArrowUpRight,
   BarChart3,
   Bot,
   CalendarDays,
@@ -113,13 +104,11 @@ import { importZenCsv } from "./csvImport";
 const routes: { id: Route; label: string; icon: typeof BarChart3 }[] = [
   { id: "overview", label: "Обзор", icon: WalletCards },
   { id: "transactions", label: "Операции", icon: List },
-  { id: "analytics", label: "Аналитика", icon: BarChart3 },
   { id: "budgets", label: "Бюджеты", icon: Target },
   { id: "savings", label: "Накопления", icon: CircleDollarSign },
   { id: "categories", label: "Категории", icon: Tag },
   // Временно отключено для пользователей:
   // { id: "assistant", label: "GPT-анализ", icon: Sparkles },
-  { id: "accounts", label: "Счета", icon: Landmark },
 ];
 
 function routeFromHash(): Route {
@@ -334,14 +323,6 @@ function dateRangeDays(range: DateRange) {
   );
 }
 
-function previousDateRange(range: DateRange): DateRange {
-  const days = dateRangeDays(range);
-  return {
-    from: addDays(range.from, -days),
-    to: addDays(range.from, -1),
-  };
-}
-
 function dateRangeLabel(range: DateRange) {
   if (range.from && !range.to)
     return `${dateLabel(range.from, true)} — без конечной даты`;
@@ -396,31 +377,6 @@ function filterTransactions(
             .includes(query),
         ),
     );
-}
-
-function statsForTransactions(transactions: Transaction[]) {
-  return transactions.reduce(
-    (result, item) => {
-      if (item.type === "income" && item.toCurrency === "RUB")
-        result.income += Number(item.toAmount || 0);
-      if (item.type === "expense" && item.fromCurrency === "RUB")
-        result.expense += Number(item.fromAmount || 0);
-      if (item.type === "transfer") result.transfers += 1;
-      return result;
-    },
-    { income: 0, expense: 0, transfers: 0 },
-  );
-}
-
-function resolvedDateRange(range: DateRange, transactions: Transaction[]) {
-  const to = range.to || todayDate();
-  const earliest = transactions.reduce(
-    (result, item) =>
-      item.date <= to && (!result || item.date < result) ? item.date : result,
-    "",
-  );
-  const from = range.from || earliest || to;
-  return from <= to ? { from, to } : { from: to, to };
 }
 
 function rangeChartData(data: AppData, range: DateRange) {
@@ -1459,76 +1415,32 @@ function TransactionModal({
   );
 }
 
-function StatCard({
-  label,
-  value,
-  tone = "default",
-  icon,
-}: {
-  label: string;
-  value: string;
-  tone?: string;
-  icon: ReactNode;
-}) {
-  return (
-    <div className={`stat-card ${tone}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <i>{icon}</i>
-    </div>
-  );
-}
-
 function Overview({
   data,
   selectedMonth,
-  edit,
-  add,
+  onEditBalance,
+  onViewTransactions,
+  onChange,
 }: {
   data: AppData;
   selectedMonth: string;
-  edit: (item: Transaction) => void;
-  add: () => void;
+  onEditBalance: (account: Account) => void;
+  onViewTransactions: (account: Account) => void;
+  onChange: (data: AppData) => Promise<boolean>;
 }) {
   const [cashflowPeriod, setCashflowPeriod] = useState<CashflowPeriod>(6);
-  const stats = statsFor(data, selectedMonth);
-  const net = stats.income - stats.expense;
-  const recent = [...data.transactions]
-    .filter((item) => item.date.startsWith(selectedMonth))
-    .sort(compareTransactionsNewest)
-    .slice(0, 6);
-  const totalBalance = data.accounts
-    .filter((item) => item.currency === "RUB")
-    .reduce((sum, item) => sum + accountBalance(data, item.name), 0);
   const cashflowPeriodTitle =
     cashflowPeriods.find((item) => item.value === cashflowPeriod)?.title ||
     "6 месяцев";
   return (
     <div className="dashboard-grid">
-      <section className="hero-balance">
-        <div>
-          <span>Общий баланс</span>
-          <strong>{money(totalBalance, "RUB", 2)}</strong>
-          <small>по всем рублёвым счетам</small>
-        </div>
-        <button className="quick-add" onClick={add}>
-          <Plus size={20} /> Добавить операцию
-        </button>
-        <div className="hero-stats">
-          <span>
-            <ArrowUpRight />
-            Доходы <b>{money(stats.income)}</b>
-          </span>
-          <span>
-            <ArrowDownRight />
-            Расходы <b>{money(stats.expense)}</b>
-          </span>
-          <span>
-            <CircleDollarSign />
-            Остаток <b>{money(net)}</b>
-          </span>
-        </div>
-      </section>
+      <OverviewAccounts
+        data={data}
+        selectedMonth={selectedMonth}
+        onEditBalance={onEditBalance}
+        onViewTransactions={onViewTransactions}
+        onChange={onChange}
+      />
       <section className="surface cashflow-card">
         <div className="section-heading">
           <div>
@@ -1556,29 +1468,11 @@ function Overview({
       <section className="surface structure-card">
         <div className="section-heading">
           <div>
-            <h2>Структура расходов</h2>
+            <h2>Категории расходов</h2>
             <p>{monthLabel(selectedMonth)}</p>
           </div>
         </div>
         <Donut data={data} selectedMonth={selectedMonth} />
-      </section>
-      <section className="surface recent-card">
-        <div className="section-heading">
-          <div>
-            <h2>Последние операции</h2>
-            <p>Недавняя активность по счетам</p>
-          </div>
-        </div>
-        <div className="operations-list">
-          {recent.map((item) => (
-            <OperationRow
-              data={data}
-              item={item}
-              onClick={() => edit(item)}
-              key={item.id}
-            />
-          ))}
-        </div>
       </section>
     </div>
   );
@@ -1619,18 +1513,6 @@ function Transactions({
       ),
     [data, dateRange, filters],
   );
-  const totals = items.reduce(
-    (value, item) => {
-      if (item.type === "income" && item.toCurrency === "RUB")
-        value.income += item.toAmount;
-      if (item.type === "expense" && item.fromCurrency === "RUB")
-        value.expense += item.fromAmount;
-      return value;
-    },
-    { income: 0, expense: 0 },
-  );
-  const net = totals.income - totals.expense;
-  const savingsRate = totals.income ? (net / totals.income) * 100 : 0;
   const monthlyGroups = useMemo(() => {
     const byMonth = new Map<
       string,
@@ -1684,7 +1566,6 @@ function Transactions({
               <p>{dateRangeLabel(dateRange)}</p>
             </div>
             <div className="filter-card-actions">
-              <span>{operationsLabel(items.length)}</span>
               <button
                 type="button"
                 className="filter-toggle"
@@ -1755,37 +1636,6 @@ function Transactions({
                     ]}
                   />
                 </div>
-              </div>
-              <div className="stats-row transaction-stats">
-                <StatCard
-                  label="Найдено"
-                  value={String(items.length)}
-                  icon={<List />}
-                />
-                <StatCard
-                  label="Доходы"
-                  value={money(totals.income)}
-                  tone="income"
-                  icon={<ArrowUpRight />}
-                />
-                <StatCard
-                  label="Расходы"
-                  value={money(totals.expense)}
-                  tone="expense"
-                  icon={<ArrowDownRight />}
-                />
-                <StatCard
-                  label="Остаток"
-                  value={money(net)}
-                  tone={net >= 0 ? "income" : "expense"}
-                  icon={<CircleDollarSign />}
-                />
-                <StatCard
-                  label="Норма сбережений"
-                  value={`${savingsRate.toFixed(0)}%`}
-                  tone="blue"
-                  icon={<Target />}
-                />
               </div>
             </div>
           </div>
@@ -1862,275 +1712,6 @@ function Transactions({
           </div>
         </section>
       )}
-    </div>
-  );
-}
-
-function Analytics({
-  data,
-  dateRange,
-  onDateRangeChange,
-  edit,
-  add,
-  filtersExpanded,
-  onFiltersExpandedChange,
-}: {
-  data: AppData;
-  dateRange: DateRange;
-  onDateRangeChange: (value: DateRange) => void;
-  edit: (item: Transaction) => void;
-  add: () => void;
-  filtersExpanded: boolean;
-  onFiltersExpandedChange: (value: boolean) => void;
-}) {
-  const [filters, setFilters] = useState<TransactionFilters>(
-    defaultTransactionFilters,
-  );
-  const filteredTransactions = useMemo(
-    () => filterTransactions(data, dateRange, filters),
-    [data, dateRange, filters],
-  );
-  const currentRange = useMemo(
-    () => resolvedDateRange(dateRange, filteredTransactions),
-    [dateRange, filteredTransactions],
-  );
-  const previousRange = previousDateRange(currentRange);
-  const previousTransactions = useMemo(
-    () => filterTransactions(data, previousRange, filters),
-    [data, filters, previousRange.from, previousRange.to],
-  );
-  const filteredData = useMemo(
-    () => ({ ...data, transactions: filteredTransactions }),
-    [data, filteredTransactions],
-  );
-  const stats = statsForTransactions(filteredTransactions);
-  const previous = statsForTransactions(previousTransactions);
-  const net = stats.income - stats.expense;
-  const savingsRate = stats.income ? (net / stats.income) * 100 : 0;
-  const expenses = filteredTransactions.filter(
-    (item) => item.type === "expense" && item.fromCurrency === "RUB",
-  );
-  const incomeCategories = categoryStatsForRange(
-    filteredData,
-    currentRange.from,
-    currentRange.to,
-    "income",
-  );
-  const expenseCategories = categoryStatsForRange(
-    filteredData,
-    currentRange.from,
-    currentRange.to,
-  );
-  const top = expenseCategories[0];
-  const largest = [...expenses]
-    .sort((a, b) => b.fromAmount - a.fromAmount)
-    .slice(0, 5);
-  const change = previous.expense
-    ? ((stats.expense - previous.expense) / previous.expense) * 100
-    : 0;
-  return (
-    <div className="analytics-page">
-      <div className="analytics-filters">
-        <Transactions
-          data={data}
-          dateRange={dateRange}
-          onDateRangeChange={onDateRangeChange}
-          filters={filters}
-          onFiltersChange={setFilters}
-          edit={edit}
-          add={add}
-          filtersExpanded={filtersExpanded}
-          onFiltersExpandedChange={onFiltersExpandedChange}
-          mode="filters"
-        />
-      </div>
-      <section className="surface analytics-wide">
-        <div className="section-heading">
-          <div>
-            <h2>Динамика денежных потоков</h2>
-            <p>Полная картина: {dateRangeLabel(dateRange)}</p>
-          </div>
-          <div className="chart-heading-tools">
-            <div className="legend">
-              <span className="income">Доходы</span>
-              <span className="expense">Расходы</span>
-            </div>
-          </div>
-        </div>
-        <CashflowChart
-          data={filteredData}
-          selectedMonth={currentRange.to.slice(0, 7)}
-          dateRange={currentRange}
-        />
-      </section>
-      <div className="analytics-column">
-        <section className="surface month-comparison">
-          <div className="section-heading">
-            <div>
-              <h2>Сравнение с предыдущим периодом</h2>
-              <p>{dateRangeLabel(previousRange)}</p>
-            </div>
-          </div>
-          <div className="comparison-list">
-            {[
-              {
-                label: "Доходы",
-                current: stats.income,
-                old: previous.income,
-                tone: "income",
-              },
-              {
-                label: "Расходы",
-                current: stats.expense,
-                old: previous.expense,
-                tone: "expense",
-              },
-              {
-                label: "Остаток",
-                current: net,
-                old: previous.income - previous.expense,
-                tone: net >= 0 ? "income" : "expense",
-              },
-            ].map((item) => {
-              const delta = item.old
-                ? ((item.current - item.old) / Math.abs(item.old)) * 100
-                : 0;
-              return (
-                <div className={item.tone} key={item.label}>
-                  <span>
-                    {item.label}
-                    <small>было {money(item.old)}</small>
-                  </span>
-                  <strong>
-                    {money(item.current)}
-                    <small>
-                      {item.old
-                        ? `${delta >= 0 ? "+" : ""}${delta.toFixed(0)}%`
-                        : "нет базы"}
-                    </small>
-                  </strong>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-        <section className="surface insights-card">
-          <div className="section-heading">
-            <div>
-              <h2>Финансовые наблюдения</h2>
-              <p>Расчёт на основе ваших операций</p>
-            </div>
-            <Sparkles size={21} />
-          </div>
-          <div className="insights">
-            <article>
-              <Target />
-              <div>
-                <strong>
-                  {savingsRate >= 20
-                    ? "Здоровый запас"
-                    : "Запас требует внимания"}
-                </strong>
-                <span>
-                  Норма сбережений {savingsRate.toFixed(0)}%. Ориентир 20%
-                  полезен как отправная точка, но зависит от ваших целей.
-                </span>
-              </div>
-            </article>
-            <article>
-              <BarChart3 />
-              <div>
-                <strong>
-                  Расходы {change > 0 ? "выросли" : "снизились"} на{" "}
-                  {Math.abs(change).toFixed(0)}%
-                </strong>
-                <span>
-                  Сравнение с предыдущими {dateRangeDays(currentRange)} дн.
-                </span>
-              </div>
-            </article>
-            <article>
-              <Sparkles />
-              <div>
-                <strong>
-                  {top
-                    ? `Главная категория — ${top.name}`
-                    : "Недостаточно данных"}
-                </strong>
-                <span>
-                  {top
-                    ? `${money(top.value)} · ${stats.expense ? Math.round((top.value / stats.expense) * 100) : 0}% всех расходов.`
-                    : "Добавьте операции, чтобы получить наблюдения."}
-                </span>
-              </div>
-            </article>
-            <article>
-              <CircleDollarSign />
-              <div>
-                <strong>
-                  Средняя покупка —{" "}
-                  {money(expenses.length ? stats.expense / expenses.length : 0)}
-                </strong>
-                <span>На основе {expenses.length} расходных операций.</span>
-              </div>
-            </article>
-          </div>
-        </section>
-        <section className="surface top-expenses">
-          <div className="section-heading">
-            <div>
-              <h2>Крупнейшие расходы</h2>
-              <p>Операции, сильнее всего повлиявшие на период</p>
-            </div>
-          </div>
-          <div className="operations-list">
-            {largest.map((item) => (
-              <OperationRow
-                key={item.id}
-                data={data}
-                item={item}
-                onClick={() => edit(item)}
-              />
-            ))}
-          </div>
-        </section>
-      </div>
-      <div className="analytics-column">
-        <section className="surface analytics-structure">
-          <div className="section-heading">
-            <div>
-              <h2>Категории расходов</h2>
-              <p>{dateRangeLabel(dateRange)}</p>
-            </div>
-          </div>
-          <Donut
-            data={filteredData}
-            selectedMonth={currentRange.to.slice(0, 7)}
-            dateRange={currentRange}
-          />
-        </section>
-        <section className="surface income-sources">
-          <div className="section-heading">
-            <div>
-              <h2>Источники дохода</h2>
-              <p>Распределение поступлений</p>
-            </div>
-          </div>
-          <div className="rank-list">
-            {incomeCategories.length ? (
-              incomeCategories.map((item) => (
-                <div key={item.id}>
-                  <i style={{ background: item.color }} />
-                  <span>{item.name}</span>
-                  <b>{money(item.value)}</b>
-                </div>
-              ))
-            ) : (
-              <span className="muted">Доходов за этот период нет</span>
-            )}
-          </div>
-        </section>
-      </div>
     </div>
   );
 }
@@ -2482,7 +2063,7 @@ function AccountEditor({
   );
 }
 
-function Accounts({
+function OverviewAccounts({
   data,
   selectedMonth,
   onEditBalance,
@@ -2497,6 +2078,9 @@ function Accounts({
 }) {
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState("");
+  const [openAccountActions, setOpenAccountActions] = useState<string | null>(
+    null,
+  );
   const monthItems = data.transactions.filter((item) =>
     item.date.startsWith(selectedMonth),
   );
@@ -2538,112 +2122,165 @@ function Accounts({
     setNotice(`Счёт «${account.name}» удалён`);
   };
   return (
-    <div className="page-stack">
-      <section className="surface management-hero">
-        <div>
-          <span className="management-hero-icon">
-            <WalletCards />
-          </span>
+    <>
+      <section className="surface overview-accounts">
+        <div className="section-heading overview-accounts-heading">
           <div>
-            <h2>Ваши счета</h2>
-            <p>Управляйте наличными, картами и валютными счетами</p>
+            <h2>Счета</h2>
+            <p>Балансы и движения · {monthLabel(selectedMonth)}</p>
           </div>
-        </div>
-        <button className="primary-button" onClick={() => setCreating(true)}>
-          <Plus /> Счёт
-        </button>
-      </section>
-      {notice && (
-        <p className="account-management-notice" role="status">
-          {notice}
-          <button
-            aria-label="Закрыть уведомление"
-            onClick={() => setNotice("")}
-          >
-            <X />
+          <button className="primary-button" onClick={() => setCreating(true)}>
+            <Plus /> Добавить счёт
           </button>
-        </p>
-      )}
-      <div className="accounts-grid">
-        {data.accounts.map((account) => {
-          const income = monthItems
-            .filter(
-              (item) =>
-                item.toAccount === account.name &&
-                item.toCurrency === account.currency,
-            )
-            .reduce((sum, item) => sum + item.toAmount, 0);
-          const expense = monthItems
-            .filter(
-              (item) =>
-                item.fromAccount === account.name &&
-                item.fromCurrency === account.currency,
-            )
-            .reduce((sum, item) => sum + item.fromAmount, 0);
-          const balance = accountBalance(data, account.name);
-          return (
-            <section
-              className="account-card"
-              style={{ "--account": account.color } as React.CSSProperties}
-              key={account.id}
+        </div>
+        {notice && (
+          <p className="account-management-notice" role="status">
+            {notice}
+            <button
+              aria-label="Закрыть уведомление"
+              onClick={() => setNotice("")}
             >
-              <header>
-                <span>
-                  <Landmark />
-                </span>
-                <div className="account-card-header-actions">
-                  <i>Активен</i>
+              <X />
+            </button>
+          </p>
+        )}
+        <div className="overview-account-rail" role="list">
+          {data.accounts.map((account) => {
+            const income = monthItems
+              .filter(
+                (item) =>
+                  item.toAccount === account.name &&
+                  item.toCurrency === account.currency,
+              )
+              .reduce((sum, item) => sum + item.toAmount, 0);
+            const expense = monthItems
+              .filter(
+                (item) =>
+                  item.fromAccount === account.name &&
+                  item.fromCurrency === account.currency,
+              )
+              .reduce((sum, item) => sum + item.fromAmount, 0);
+            const balance = accountBalance(data, account.name);
+            return (
+              <article
+                className="overview-account-card"
+                style={{ "--account": account.color } as React.CSSProperties}
+                role="listitem"
+                key={account.id}
+              >
+                <header>
+                  <span className="overview-account-icon">
+                    {account.type === "cash" ? <WalletCards /> : <Landmark />}
+                  </span>
+                  <div className="overview-account-actions">
+                    <button
+                      type="button"
+                      aria-label={`Изменить баланс ${account.name}`}
+                      title="Изменить баланс"
+                      onClick={() => onEditBalance(account)}
+                    >
+                      <Pencil />
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      aria-label={`Удалить счёт ${account.name}`}
+                      title={
+                        data.accounts.length <= 1
+                          ? "Последний счёт удалить нельзя"
+                          : "Удалить счёт"
+                      }
+                      disabled={data.accounts.length <= 1}
+                      onClick={() => void removeAccount(account)}
+                    >
+                      <Trash2 />
+                    </button>
+                  </div>
                   <button
                     type="button"
-                    className="danger"
-                    aria-label={`Удалить счёт ${account.name}`}
-                    title={
-                      data.accounts.length <= 1
-                        ? "Последний счёт удалить нельзя"
-                        : "Удалить счёт"
+                    className="overview-account-menu-trigger"
+                    aria-label={`Действия со счётом ${account.name}`}
+                    aria-expanded={openAccountActions === account.id}
+                    aria-controls={`account-actions-${account.id}`}
+                    onClick={() =>
+                      setOpenAccountActions((current) =>
+                        current === account.id ? null : account.id,
+                      )
                     }
-                    disabled={data.accounts.length <= 1}
-                    onClick={() => void removeAccount(account)}
                   >
-                    <Trash2 />
+                    <MoreHorizontal />
                   </button>
+                </header>
+                <div className="overview-account-copy">
+                  <strong>{account.name}</strong>
+                  <span>
+                    {account.type === "cash" ? "Наличные" : "Банковский счёт"}
+                    {" · "}
+                    {account.currency}
+                  </span>
                 </div>
-              </header>
-              <p>
-                {account.name}
-                <small>
-                  {account.type === "cash" ? "Наличные" : "Банковский счёт"} ·{" "}
-                  {account.currency}
-                </small>
-              </p>
-              <div className="account-balance-row">
-                <strong>{money(balance, account.currency, 2)}</strong>
-                <button
-                  aria-label={`Изменить баланс ${account.name}`}
-                  onClick={() => onEditBalance(account)}
-                >
-                  <Pencil />
-                </button>
-              </div>
-              <footer>
-                <span className="income">
-                  +{money(income, account.currency)}
-                </span>
-                <span className="expense">
-                  −{money(expense, account.currency)}
-                </span>
-              </footer>
-              <button
-                type="button"
-                className="account-transactions-button"
-                onClick={() => onViewTransactions(account)}
-              >
-                <List /> Смотреть операции
-              </button>
-            </section>
-          );
-        })}
-      </div>
+                <b className="overview-account-balance">
+                  {money(balance, account.currency, 2)}
+                </b>
+                <footer>
+                  <span className="income">
+                    +{money(income, account.currency)}
+                  </span>
+                  <span className="expense">
+                    −{money(expense, account.currency)}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={`Показать операции счёта ${account.name}`}
+                    onClick={() => onViewTransactions(account)}
+                  >
+                    <List />
+                  </button>
+                </footer>
+                {openAccountActions === account.id && (
+                  <div
+                    className="overview-account-mobile-actions"
+                    id={`account-actions-${account.id}`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOpenAccountActions(null);
+                        onEditBalance(account);
+                      }}
+                    >
+                      <Pencil />
+                      Баланс
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOpenAccountActions(null);
+                        onViewTransactions(account);
+                      }}
+                    >
+                      <List />
+                      Операции
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      disabled={data.accounts.length <= 1}
+                      onClick={() => {
+                        setOpenAccountActions(null);
+                        void removeAccount(account);
+                      }}
+                    >
+                      <Trash2 />
+                      Удалить
+                    </button>
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      </section>
       {creating && (
         <AccountEditor
           data={data}
@@ -2651,7 +2288,7 @@ function Accounts({
           onSave={saveAccount}
         />
       )}
-    </div>
+    </>
   );
 }
 
@@ -3021,10 +2658,16 @@ export default function App() {
   }, [user]);
   useEffect(() => {
     const syncRoute = () => {
-      const value = location.hash.slice(1) as Route;
-      if ([...routes.map((item) => item.id), "settings"].includes(value))
-        setRoute(value);
+      const requested = location.hash.slice(1) as Route;
+      const value = [...routes.map((item) => item.id), "settings"].includes(
+        requested,
+      )
+        ? requested
+        : "overview";
+      setRoute(value);
+      if (value !== requested) history.replaceState(null, "", `#${value}`);
     };
+    syncRoute();
     addEventListener("hashchange", syncRoute);
     return () => removeEventListener("hashchange", syncRoute);
   }, []);
@@ -3115,12 +2758,10 @@ export default function App() {
     budgets: "Бюджеты",
     savings: "Накопления",
     categories: "Категории",
-    analytics: "Аналитика",
-    accounts: "Счета",
     settings: "Настройки",
   }[route];
   const bottomRoutes = routes.filter((item) =>
-    ["overview", "transactions", "analytics", "accounts"].includes(item.id),
+    ["overview", "transactions", "budgets", "savings"].includes(item.id),
   );
   const saveData = (value: AppData) => {
     void persistData(value);
@@ -3134,7 +2775,7 @@ export default function App() {
   const changeDateRange = (value: DateRange) => {
     setDateRange({ route, value });
   };
-  const showMonthPeriod = route === "budgets" || route === "accounts";
+  const showMonthPeriod = route === "overview" || route === "budgets";
   return (
     <div className="app">
       <aside className={`sidebar ${mobileMenu ? "mobile-open" : ""}`}>
@@ -3291,8 +2932,15 @@ export default function App() {
             <Overview
               data={data}
               selectedMonth={selectedMonth}
-              edit={setTransaction}
-              add={() => setTransaction(null)}
+              onEditBalance={setBalanceAccount}
+              onViewTransactions={(account) => {
+                setTransactionFilters((current) => ({
+                  ...current,
+                  accountId: account.id,
+                }));
+                navigate("transactions");
+              }}
+              onChange={persistData}
             />
           )}{" "}
           {route === "transactions" && (
@@ -3302,17 +2950,6 @@ export default function App() {
               onDateRangeChange={changeDateRange}
               filters={transactionFilters}
               onFiltersChange={setTransactionFilters}
-              edit={setTransaction}
-              add={() => setTransaction(null)}
-              filtersExpanded={filtersExpanded}
-              onFiltersExpandedChange={setFiltersExpanded}
-            />
-          )}{" "}
-          {route === "analytics" && (
-            <Analytics
-              data={data}
-              dateRange={effectiveDateRange}
-              onDateRangeChange={changeDateRange}
               edit={setTransaction}
               add={() => setTransaction(null)}
               filtersExpanded={filtersExpanded}
@@ -3332,21 +2969,6 @@ export default function App() {
           )}{" "}
           {route === "categories" && (
             <CategoriesPage data={data} onChange={saveData} />
-          )}{" "}
-          {route === "accounts" && (
-            <Accounts
-              data={data}
-              selectedMonth={selectedMonth}
-              onEditBalance={setBalanceAccount}
-              onViewTransactions={(account) => {
-                setTransactionFilters((current) => ({
-                  ...current,
-                  accountId: account.id,
-                }));
-                navigate("transactions");
-              }}
-              onChange={persistData}
-            />
           )}{" "}
           {route === "settings" && (
             <SettingsPage

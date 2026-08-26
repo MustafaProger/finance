@@ -86,6 +86,4 @@ export type Route =
   | "budgets"
   | "savings"
   | "categories"
-  | "analytics"
-  | "accounts"
   | "settings";
