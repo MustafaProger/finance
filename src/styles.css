@@ -878,7 +878,7 @@ textarea:focus-visible {
 /* Overview and charts */
 .dashboard-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(330px, 0.75fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 17px;
 }
 .overview-accounts {
@@ -1028,11 +1028,10 @@ textarea:focus-visible {
 .overview-account-mobile-actions {
   display: none;
 }
-.cashflow-card {
-  grid-column: 1;
-}
+.cashflow-card,
 .structure-card {
-  grid-column: 2;
+  min-width: 0;
+  grid-column: 1;
 }
 .chart-shell {
   width: 100%;
@@ -1043,12 +1042,17 @@ textarea:focus-visible {
 .chart-shell.compact {
   height: 245px;
 }
+.cashflow-card .chart-shell.compact {
+  height: clamp(270px, 24vw, 340px);
+}
 .recharts-surface {
   overflow: visible;
 }
 .donut-layout {
   display: grid;
-  gap: 20px;
+  grid-template-columns: minmax(210px, 0.24fr) minmax(0, 1fr);
+  gap: clamp(26px, 3.2vw, 54px);
+  align-items: center;
 }
 .donut-visual {
   min-width: 0;
@@ -1092,8 +1096,14 @@ textarea:focus-visible {
   color: #94a3b8;
 }
 .category-breakdown {
+  --category-columns: 1;
+  min-width: 0;
   display: grid;
-  gap: 5px;
+  grid-template-columns: repeat(var(--category-columns), minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, auto));
+  grid-auto-flow: column;
+  gap: 8px 12px;
+  align-content: center;
 }
 .category-toggle {
   min-width: 0;
@@ -3553,7 +3563,7 @@ textarea:focus-visible {
     padding-right: 24px;
   }
   .dashboard-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .filter-fields.is-compact {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3617,6 +3627,18 @@ textarea:focus-visible {
   .management-submit {
     min-height: 45px;
     margin-top: 16px;
+  }
+}
+
+@media (max-width: 1180px) {
+  .donut-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
+  .category-breakdown {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: none;
+    grid-auto-flow: row;
   }
 }
 
@@ -4023,6 +4045,12 @@ textarea:focus-visible {
   .overview-account-mobile-actions svg {
     width: 14px;
     height: 14px;
+  }
+  .category-breakdown {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cashflow-card .chart-shell.compact {
+    height: 250px;
   }
   .cashflow-card .section-heading {
     display: grid;

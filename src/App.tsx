@@ -813,7 +813,14 @@ function Donut({
           </p>
         )}
       </div>
-      <div className="category-breakdown">
+      <div
+        className="category-breakdown"
+        style={
+          {
+            "--category-columns": Math.max(1, Math.ceil(categories.length / 3)),
+          } as React.CSSProperties
+        }
+      >
         {categories.map((item) => {
           const excluded = excludedIds.has(item.id);
           return (
@@ -1441,6 +1448,15 @@ function Overview({
         onViewTransactions={onViewTransactions}
         onChange={onChange}
       />
+      <section className="surface structure-card">
+        <div className="section-heading">
+          <div>
+            <h2>Категории расходов</h2>
+            <p>{monthLabel(selectedMonth)}</p>
+          </div>
+        </div>
+        <Donut data={data} selectedMonth={selectedMonth} />
+      </section>
       <section className="surface cashflow-card">
         <div className="section-heading">
           <div>
@@ -1464,15 +1480,6 @@ function Overview({
           period={cashflowPeriod}
           compact
         />
-      </section>
-      <section className="surface structure-card">
-        <div className="section-heading">
-          <div>
-            <h2>Категории расходов</h2>
-            <p>{monthLabel(selectedMonth)}</p>
-          </div>
-        </div>
-        <Donut data={data} selectedMonth={selectedMonth} />
       </section>
     </div>
   );
