@@ -230,20 +230,6 @@ function amountExpressionHasOperator(value: string) {
   return /[+*/×÷хХ]/.test(value) || /[−–—-]/.test(value.slice(1));
 }
 
-function operationsLabel(count: number) {
-  const remainder100 = count % 100;
-  const remainder10 = count % 10;
-  const word =
-    remainder100 >= 11 && remainder100 <= 14
-      ? "операций"
-      : remainder10 === 1
-        ? "операция"
-        : remainder10 >= 2 && remainder10 <= 4
-          ? "операции"
-          : "операций";
-  return `${count} ${word}`;
-}
-
 const cashflowPeriods: {
   value: CashflowPeriod;
   label: string;
@@ -898,7 +884,12 @@ function OperationRow({
   const sign =
     item.type === "income" ? "+" : item.type === "expense" ? "−" : "↔ ";
   return (
-    <button className="operation-row" type="button" onClick={onClick}>
+    <button
+      className="operation-row"
+      type="button"
+      data-transaction-id={item.id}
+      onClick={onClick}
+    >
       <CategoryBadge data={data} transaction={item} />
       <span className="operation-copy">
         <strong>{titleOf(item)}</strong>
@@ -1626,6 +1617,113 @@ function CategoryDistribution({
   );
 }
 
+type AnalyticsMode = Extract<TransactionType, "expense" | "income">;
+
+function OperationCategoryBreakdown({
+  items,
+  mode,
+}: {
+  items: CategorySegment[];
+  mode: AnalyticsMode;
+}) {
+  const emptyLabel = mode === "expense" ? "Нет расходов" : "Нет доходов";
+  const label = mode === "expense" ? "Категории расходов" : "Категории доходов";
+  return (
+    <ul className="operation-category-breakdown" aria-label={label}>
+      {items.length ? (
+        items.map((item) => (
+          <li
+            key={item.id}
+            style={{ "--category-color": item.color } as React.CSSProperties}
+          >
+            <i aria-hidden="true" />
+            <span>{item.name}</span>
+            <strong>{money(item.value)}</strong>
+          </li>
+        ))
+      ) : (
+        <li className="is-empty">
+          <span>{emptyLabel} в этом месяце</span>
+          <strong>{money(0)}</strong>
+        </li>
+      )}
+    </ul>
+  );
+}
+
+function OperationMonthMetric({
+  mode,
+  summary,
+  selected,
+  categoriesExpanded,
+  onSelect,
+  onToggleCategories,
+}: {
+  mode: AnalyticsMode;
+  summary: MonthlyOperationGroup;
+  selected: boolean;
+  categoriesExpanded: boolean;
+  onSelect: (mode: AnalyticsMode) => void;
+  onToggleCategories: () => void;
+}) {
+  const isExpense = mode === "expense";
+  const label = isExpense ? "Потратили" : "Получили";
+  const categories = isExpense
+    ? summary.expenseCategories
+    : summary.incomeCategories;
+  const value = isExpense ? summary.expense : summary.income;
+  const metricContent = (
+    <>
+      <span>{label}</span>
+      <div className="operation-month-amount-row">
+        <strong>
+          <AnimatedMoney value={value} />
+        </strong>
+        {selected && (
+          <button
+            type="button"
+            className="operation-category-toggle"
+            aria-expanded={categoriesExpanded}
+            aria-label={`${categoriesExpanded ? "Скрыть" : "Показать"} ${isExpense ? "категории расходов" : "категории доходов"}`}
+            onClick={onToggleCategories}
+          >
+            <ChevronDown aria-hidden="true" />
+          </button>
+        )}
+      </div>
+      <CategoryDistribution
+        items={categories}
+        label={isExpense ? "Категории расходов" : "Категории доходов"}
+      />
+      {selected && (
+        <div
+          className={`operation-category-collapse ${categoriesExpanded ? "is-open" : ""}`}
+          aria-hidden={!categoriesExpanded}
+        >
+          <div>
+            <OperationCategoryBreakdown items={categories} mode={mode} />
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  return selected ? (
+    <article className={`operation-month-metric ${mode} is-selected`}>
+      {metricContent}
+    </article>
+  ) : (
+    <button
+      type="button"
+      className={`operation-month-metric ${mode}`}
+      aria-label={`Показать только ${isExpense ? "расходы" : "доходы"}`}
+      onClick={() => onSelect(mode)}
+    >
+      {metricContent}
+    </button>
+  );
+}
+
 function Transactions({
   data,
   dateRange,
@@ -1649,8 +1747,13 @@ function Transactions({
     "period" | "category" | "account" | null
   >(null);
   const [activeMonth, setActiveMonth] = useState("");
+  const [categoriesExpanded, setCategoriesExpanded] = useState(true);
   const stickyContext = useRef<HTMLDivElement>(null);
   const monthGroups = useRef(new Map<string, HTMLElement>());
+  const pendingTypeScroll = useRef<string | null>(null);
+  const categoryDisclosureLocked = useRef(false);
+  const categoryDisclosureTimer = useRef(0);
+  const categoryDisclosureUnlockTimer = useRef(0);
   const selectedAccount = data.accounts.find(
     (item) => item.id === filters.accountId,
   );
@@ -1683,21 +1786,38 @@ function Transactions({
     () => new Map(monthlySummaries.map((group) => [group.month, group])),
     [monthlySummaries],
   );
+  const visibleGroupsByMonth = useMemo(
+    () => new Map(monthlyGroups.map((group) => [group.month, group])),
+    [monthlyGroups],
+  );
+  const analyticsMode: AnalyticsMode | null =
+    filters.type === "expense" || filters.type === "income"
+      ? filters.type
+      : null;
 
   useEffect(() => {
-    if (!monthlyGroups.some((group) => group.month === activeMonth))
-      setActiveMonth(monthlyGroups[0]?.month || "");
-  }, [activeMonth, monthlyGroups]);
+    if (!monthlySummaries.some((group) => group.month === activeMonth))
+      setActiveMonth(monthlySummaries[0]?.month || "");
+  }, [activeMonth, monthlySummaries]);
+
+  useEffect(
+    () => () => {
+      clearTimeout(categoryDisclosureTimer.current);
+      clearTimeout(categoryDisclosureUnlockTimer.current);
+    },
+    [],
+  );
 
   useEffect(() => {
-    if (!monthlyGroups.length) return;
+    if (!monthlySummaries.length) return;
     let frame = 0;
     const updateActiveMonth = () => {
       frame = 0;
+      if (pendingTypeScroll.current || categoryDisclosureLocked.current) return;
       const threshold =
         (stickyContext.current?.getBoundingClientRect().bottom || 0) + 18;
-      let nextMonth = monthlyGroups[0].month;
-      for (const group of monthlyGroups) {
+      let nextMonth = monthlySummaries[0].month;
+      for (const group of monthlySummaries) {
         const node = monthGroups.current.get(group.month);
         if (!node) continue;
         if (node.getBoundingClientRect().top <= threshold)
@@ -1719,24 +1839,95 @@ function Transactions({
       removeEventListener("scroll", scheduleUpdate);
       removeEventListener("resize", scheduleUpdate);
     };
-  }, [monthlyGroups, openFilter]);
+  }, [monthlySummaries, openFilter]);
+
+  useEffect(() => {
+    const month = pendingTypeScroll.current;
+    if (!month || !analyticsMode) return;
+    let frame = 0;
+    const timeout = window.setTimeout(() => {
+      frame = requestAnimationFrame(() => {
+        const node = monthGroups.current.get(month);
+        if (!node) {
+          pendingTypeScroll.current = null;
+          return;
+        }
+        const stickyHeight =
+          stickyContext.current?.getBoundingClientRect().height || 0;
+        const top =
+          window.scrollY + node.getBoundingClientRect().top - stickyHeight - 20;
+        window.scrollTo({
+          top: Math.max(0, top),
+          behavior: "auto",
+        });
+        pendingTypeScroll.current = null;
+      });
+    }, 320);
+    return () => {
+      clearTimeout(timeout);
+      cancelAnimationFrame(frame);
+    };
+  }, [analyticsMode, monthlySummaries]);
 
   const activeSummary =
     summariesByMonth.get(activeMonth) || monthlySummaries[0];
-  const activeVisibleGroup = monthlyGroups.find(
-    (group) => group.month === activeMonth,
-  );
   const hasActiveFilters =
     Boolean(dateRange.from || dateRange.to || filters.query) ||
     filters.type !== "all" ||
     filters.categoryId !== "all" ||
     filters.accountId !== "all";
   const setTypeFilter = (type: TransactionType | "all") => {
+    const nextType = filters.type === type && type !== "all" ? "all" : type;
     setOpenFilter(null);
+    if (nextType === "expense" || nextType === "income") {
+      pendingTypeScroll.current =
+        activeMonth || monthlySummaries[0]?.month || null;
+      if (filters.type !== nextType) setCategoriesExpanded(true);
+    }
     onFiltersChange({
       ...filters,
-      type: filters.type === type && type !== "all" ? "all" : type,
+      type: nextType,
     });
+  };
+  const toggleCategories = () => {
+    clearTimeout(categoryDisclosureTimer.current);
+    clearTimeout(categoryDisclosureUnlockTimer.current);
+    const stickyNode = stickyContext.current;
+    const threshold = (stickyNode?.getBoundingClientRect().bottom || 0) + 18;
+    let month = monthlySummaries[0]?.month || activeMonth;
+    for (const node of document.querySelectorAll<HTMLElement>(
+      ".operation-month-group",
+    )) {
+      if (node.getBoundingClientRect().top <= threshold)
+        month = node.dataset.month || month;
+      else break;
+    }
+    const monthNode = monthGroups.current.get(month);
+    const anchorGap =
+      monthNode && stickyNode
+        ? monthNode.getBoundingClientRect().top -
+          stickyNode.getBoundingClientRect().bottom
+        : 8;
+    categoryDisclosureLocked.current = true;
+    if (month) setActiveMonth(month);
+    setCategoriesExpanded((current) => !current);
+    categoryDisclosureTimer.current = window.setTimeout(() => {
+      const updatedMonthNode = monthGroups.current.get(month);
+      const updatedStickyNode = stickyContext.current;
+      if (updatedMonthNode && updatedStickyNode) {
+        const updatedGap =
+          updatedMonthNode.getBoundingClientRect().top -
+          updatedStickyNode.getBoundingClientRect().bottom;
+        window.scrollTo({
+          top: Math.max(0, window.scrollY + updatedGap - anchorGap),
+          behavior: "auto",
+        });
+      }
+      if (month) setActiveMonth(month);
+      categoryDisclosureUnlockTimer.current = window.setTimeout(() => {
+        categoryDisclosureLocked.current = false;
+      }, 120);
+    }, 320);
   };
   const resetFilters = () => {
     setOpenFilter(null);
@@ -1918,87 +2109,94 @@ function Transactions({
             )}
             {activeSummary && (
               <header
-                className="operation-month-summary"
+                className={`operation-month-summary ${analyticsMode ? "is-single" : ""}`}
                 aria-live="polite"
                 aria-label={`Сводка за ${monthLabel(activeSummary.month)}`}
               >
-                <div
-                  className="operation-month-title"
-                  key={activeSummary.month}
-                >
-                  <span>Месяц</span>
-                  <h3>{monthLabel(activeSummary.month)}</h3>
-                  <small>
-                    {operationsLabel(
-                      activeVisibleGroup?.count || activeSummary.count,
-                    )}
-                  </small>
-                </div>
-                <button
-                  type="button"
-                  className={`operation-month-metric expense ${filters.type === "expense" ? "active" : ""}`}
-                  aria-pressed={filters.type === "expense"}
-                  onClick={() => setTypeFilter("expense")}
-                >
-                  <span>Потратили</span>
-                  <strong>
-                    <AnimatedMoney value={activeSummary.expense} />
-                  </strong>
-                  <CategoryDistribution
-                    items={activeSummary.expenseCategories}
-                    label="Категории расходов"
+                {analyticsMode ? (
+                  <OperationMonthMetric
+                    mode={analyticsMode}
+                    summary={activeSummary}
+                    selected
+                    categoriesExpanded={categoriesExpanded}
+                    onSelect={setTypeFilter}
+                    onToggleCategories={toggleCategories}
                   />
-                </button>
-                <button
-                  type="button"
-                  className={`operation-month-metric income ${filters.type === "income" ? "active" : ""}`}
-                  aria-pressed={filters.type === "income"}
-                  onClick={() => setTypeFilter("income")}
-                >
-                  <span>Получили</span>
-                  <strong>
-                    <AnimatedMoney value={activeSummary.income} />
-                  </strong>
-                  <CategoryDistribution
-                    items={activeSummary.incomeCategories}
-                    label="Категории доходов"
-                  />
-                </button>
+                ) : (
+                  <>
+                    <OperationMonthMetric
+                      mode="expense"
+                      summary={activeSummary}
+                      selected={false}
+                      categoriesExpanded={categoriesExpanded}
+                      onSelect={setTypeFilter}
+                      onToggleCategories={() => undefined}
+                    />
+                    <OperationMonthMetric
+                      mode="income"
+                      summary={activeSummary}
+                      selected={false}
+                      categoriesExpanded={categoriesExpanded}
+                      onSelect={setTypeFilter}
+                      onToggleCategories={() => undefined}
+                    />
+                  </>
+                )}
               </header>
             )}
           </div>
           <div className="operations-list full">
-            {items.length ? (
-              monthlyGroups.map((monthGroup) => (
-                <section
-                  className="operation-month-group"
-                  data-month={monthGroup.month}
-                  key={monthGroup.month}
-                  ref={(node) => {
-                    if (node) monthGroups.current.set(monthGroup.month, node);
-                    else monthGroups.current.delete(monthGroup.month);
-                  }}
-                >
-                  <div className="operation-month-dates">
-                    {monthGroup.dates.map(([date, dateItems]) => (
-                      <section className="operation-date-group" key={date}>
-                        <header>
-                          <strong>{dateLabel(date, true)}</strong>
-                          <span>{dateItems.length} оп.</span>
-                        </header>
-                        {dateItems.map((item) => (
-                          <OperationRow
-                            data={data}
-                            item={item}
-                            onClick={() => edit(item)}
-                            key={item.id}
-                          />
-                        ))}
-                      </section>
-                    ))}
-                  </div>
-                </section>
-              ))
+            {monthlySummaries.length ? (
+              monthlySummaries.map((monthSummary) => {
+                const monthGroup = visibleGroupsByMonth.get(monthSummary.month);
+                return (
+                  <section
+                    className={`operation-month-group ${monthGroup?.dates.length ? "" : "is-empty"}`}
+                    data-month={monthSummary.month}
+                    key={monthSummary.month}
+                    ref={(node) => {
+                      if (node)
+                        monthGroups.current.set(monthSummary.month, node);
+                      else monthGroups.current.delete(monthSummary.month);
+                    }}
+                  >
+                    <div className="operation-month-dates">
+                      {monthGroup?.dates.length ? (
+                        monthGroup.dates.map(([date, dateItems]) => (
+                          <section className="operation-date-group" key={date}>
+                            <header>
+                              <strong>{dateLabel(date, true)}</strong>
+                              <span>{dateItems.length} оп.</span>
+                            </header>
+                            {dateItems.map((item) => (
+                              <OperationRow
+                                data={data}
+                                item={item}
+                                onClick={() => edit(item)}
+                                key={item.id}
+                              />
+                            ))}
+                          </section>
+                        ))
+                      ) : (
+                        <div className="operation-month-empty">
+                          <Search aria-hidden="true" />
+                          <strong>
+                            {filters.type === "expense"
+                              ? "Нет расходов"
+                              : filters.type === "income"
+                                ? "Нет доходов"
+                                : filters.type === "transfer"
+                                  ? "Нет переводов"
+                                  : "Нет операций"}
+                          </strong>
+                          <span>в этом месяце</span>
+                        </div>
+                      )}
+                    </div>
+                  </section>
+                );
+              })
             ) : (
               <div className="empty">
                 <Search />
