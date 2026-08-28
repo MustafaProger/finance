@@ -147,7 +147,6 @@ const fontScaleMin = 80;
 const fontScaleMax = 150;
 const fontScaleStep = 10;
 const fontScaleStorageKey = "kapital-font-scale-v1";
-const filtersExpandedStorageKey = "kapital-filters-expanded-v1";
 const amountOperators = [
   { value: "+", label: "Прибавить" },
   { value: "−", label: "Вычесть" },
@@ -165,15 +164,6 @@ function savedFontScale(): FontScale {
       : 100;
   } catch {
     return 100;
-  }
-}
-
-function savedFiltersExpanded() {
-  try {
-    const saved = localStorage.getItem(filtersExpandedStorageKey);
-    return saved === null ? true : saved === "true";
-  } catch {
-    return true;
   }
 }
 
@@ -432,6 +422,41 @@ function useBodyScrollLock(locked: boolean) {
       window.scrollTo({ top: scrollY, behavior: "auto" });
     };
   }, [locked]);
+}
+
+function useAnimatedNumber(target: number, duration = 320) {
+  const [value, setValue] = useState(target);
+  const valueRef = useRef(target);
+
+  useEffect(() => {
+    const start = valueRef.current;
+    if (start === target) return;
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      valueRef.current = target;
+      setValue(target);
+      return;
+    }
+
+    const startedAt = performance.now();
+    let frame = 0;
+    const animate = (now: number) => {
+      const progress = Math.min(1, (now - startedAt) / duration);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const next = start + (target - start) * eased;
+      valueRef.current = next;
+      setValue(next);
+      if (progress < 1) frame = requestAnimationFrame(animate);
+    };
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, [duration, target]);
+
+  return value;
+}
+
+function AnimatedMoney({ value }: { value: number }) {
+  const animatedValue = useAnimatedNumber(value);
+  return <>{money(animatedValue)}</>;
 }
 
 function cashflowMonthCount(
@@ -1485,6 +1510,122 @@ function Overview({
   );
 }
 
+type CategorySegment = {
+  id: string;
+  name: string;
+  color: string;
+  value: number;
+};
+
+type MonthlyOperationGroup = {
+  month: string;
+  income: number;
+  expense: number;
+  count: number;
+  incomeCategories: CategorySegment[];
+  expenseCategories: CategorySegment[];
+  dates: [string, Transaction[]][];
+};
+
+function groupTransactionsByMonth(data: AppData, items: Transaction[]) {
+  const byMonth = new Map<
+    string,
+    Omit<
+      MonthlyOperationGroup,
+      "incomeCategories" | "expenseCategories" | "dates"
+    > & {
+      incomeCategories: Map<string, number>;
+      expenseCategories: Map<string, number>;
+      dates: Map<string, Transaction[]>;
+    }
+  >();
+
+  items.forEach((item) => {
+    const month = item.date.slice(0, 7);
+    const monthGroup = byMonth.get(month) || {
+      month,
+      income: 0,
+      expense: 0,
+      count: 0,
+      incomeCategories: new Map<string, number>(),
+      expenseCategories: new Map<string, number>(),
+      dates: new Map<string, Transaction[]>(),
+    };
+    if (item.type === "income" && item.toCurrency === "RUB") {
+      const value = Number(item.toAmount || 0);
+      monthGroup.income += value;
+      monthGroup.incomeCategories.set(
+        item.categoryId,
+        (monthGroup.incomeCategories.get(item.categoryId) || 0) + value,
+      );
+    }
+    if (item.type === "expense" && item.fromCurrency === "RUB") {
+      const value = Number(item.fromAmount || 0);
+      monthGroup.expense += value;
+      monthGroup.expenseCategories.set(
+        item.categoryId,
+        (monthGroup.expenseCategories.get(item.categoryId) || 0) + value,
+      );
+    }
+    monthGroup.count += 1;
+    const dateGroup = monthGroup.dates.get(item.date) || [];
+    dateGroup.push(item);
+    monthGroup.dates.set(item.date, dateGroup);
+    byMonth.set(month, monthGroup);
+  });
+
+  const categorySegments = (values: Map<string, number>) =>
+    [...values]
+      .map(([id, value]) => {
+        const category = categoryOf(data, id);
+        return { id, name: category.name, color: category.color, value };
+      })
+      .sort((left, right) => right.value - left.value);
+
+  return [...byMonth.values()].map<MonthlyOperationGroup>((group) => ({
+    ...group,
+    incomeCategories: categorySegments(group.incomeCategories),
+    expenseCategories: categorySegments(group.expenseCategories),
+    dates: [...group.dates.entries()],
+  }));
+}
+
+function CategoryDistribution({
+  items,
+  label,
+}: {
+  items: CategorySegment[];
+  label: string;
+}) {
+  const description = items.length
+    ? items.map((item) => `${item.name}: ${money(item.value)}`).join(", ")
+    : "нет операций";
+  return (
+    <div
+      className={`category-distribution ${items.length ? "" : "is-empty"}`}
+      role="img"
+      aria-label={`${label}: ${description}`}
+    >
+      {items.length ? (
+        items.map((item) => (
+          <i
+            key={item.id}
+            title={`${item.name}: ${money(item.value)}`}
+            style={
+              {
+                "--category-color": item.color,
+                flexGrow: item.value,
+              } as React.CSSProperties
+            }
+          />
+        ))
+      ) : (
+        <i />
+      )}
+    </div>
+  );
+}
+
 function Transactions({
   data,
   dateRange,
@@ -1493,8 +1634,6 @@ function Transactions({
   onFiltersChange,
   edit,
   add,
-  filtersExpanded,
-  onFiltersExpandedChange,
   mode = "full",
 }: {
   data: AppData;
@@ -1504,14 +1643,19 @@ function Transactions({
   onFiltersChange: (value: TransactionFilters) => void;
   edit: (item: Transaction) => void;
   add: () => void;
-  filtersExpanded: boolean;
-  onFiltersExpandedChange: (value: boolean) => void;
   mode?: "full" | "filters" | "list";
 }) {
-  const [filtersExpansionSettled, setFiltersExpansionSettled] =
-    useState(filtersExpanded);
+  const [openFilter, setOpenFilter] = useState<
+    "period" | "category" | "account" | null
+  >(null);
+  const [activeMonth, setActiveMonth] = useState("");
+  const stickyContext = useRef<HTMLDivElement>(null);
+  const monthGroups = useRef(new Map<string, HTMLElement>());
   const selectedAccount = data.accounts.find(
     (item) => item.id === filters.accountId,
+  );
+  const selectedCategory = data.categories.find(
+    (item) => item.id === filters.categoryId,
   );
   const items = useMemo(
     () =>
@@ -1520,137 +1664,93 @@ function Transactions({
       ),
     [data, dateRange, filters],
   );
-  const monthlyGroups = useMemo(() => {
-    const byMonth = new Map<
-      string,
-      {
-        month: string;
-        income: number;
-        expense: number;
-        count: number;
-        dates: Map<string, Transaction[]>;
+  const summaryItems = useMemo(
+    () =>
+      filterTransactions(data, dateRange, { ...filters, type: "all" }).sort(
+        compareTransactionsNewest,
+      ),
+    [data, dateRange, filters],
+  );
+  const monthlyGroups = useMemo(
+    () => groupTransactionsByMonth(data, items),
+    [data, items],
+  );
+  const monthlySummaries = useMemo(
+    () => groupTransactionsByMonth(data, summaryItems),
+    [data, summaryItems],
+  );
+  const summariesByMonth = useMemo(
+    () => new Map(monthlySummaries.map((group) => [group.month, group])),
+    [monthlySummaries],
+  );
+
+  useEffect(() => {
+    if (!monthlyGroups.some((group) => group.month === activeMonth))
+      setActiveMonth(monthlyGroups[0]?.month || "");
+  }, [activeMonth, monthlyGroups]);
+
+  useEffect(() => {
+    if (!monthlyGroups.length) return;
+    let frame = 0;
+    const updateActiveMonth = () => {
+      frame = 0;
+      const threshold =
+        (stickyContext.current?.getBoundingClientRect().bottom || 0) + 18;
+      let nextMonth = monthlyGroups[0].month;
+      for (const group of monthlyGroups) {
+        const node = monthGroups.current.get(group.month);
+        if (!node) continue;
+        if (node.getBoundingClientRect().top <= threshold)
+          nextMonth = group.month;
+        else break;
       }
-    >();
-    items.forEach((item) => {
-      const month = item.date.slice(0, 7);
-      const monthGroup = byMonth.get(month) || {
-        month,
-        income: 0,
-        expense: 0,
-        count: 0,
-        dates: new Map<string, Transaction[]>(),
-      };
-      if (item.type === "income" && item.toCurrency === "RUB")
-        monthGroup.income += Number(item.toAmount || 0);
-      if (item.type === "expense" && item.fromCurrency === "RUB")
-        monthGroup.expense += Number(item.fromAmount || 0);
-      monthGroup.count += 1;
-      const dateGroup = monthGroup.dates.get(item.date) || [];
-      dateGroup.push(item);
-      monthGroup.dates.set(item.date, dateGroup);
-      byMonth.set(month, monthGroup);
+      setActiveMonth((current) =>
+        current === nextMonth ? current : nextMonth,
+      );
+    };
+    const scheduleUpdate = () => {
+      if (!frame) frame = requestAnimationFrame(updateActiveMonth);
+    };
+    scheduleUpdate();
+    addEventListener("scroll", scheduleUpdate, { passive: true });
+    addEventListener("resize", scheduleUpdate);
+    return () => {
+      cancelAnimationFrame(frame);
+      removeEventListener("scroll", scheduleUpdate);
+      removeEventListener("resize", scheduleUpdate);
+    };
+  }, [monthlyGroups, openFilter]);
+
+  const activeSummary =
+    summariesByMonth.get(activeMonth) || monthlySummaries[0];
+  const activeVisibleGroup = monthlyGroups.find(
+    (group) => group.month === activeMonth,
+  );
+  const hasActiveFilters =
+    Boolean(dateRange.from || dateRange.to || filters.query) ||
+    filters.type !== "all" ||
+    filters.categoryId !== "all" ||
+    filters.accountId !== "all";
+  const setTypeFilter = (type: TransactionType | "all") => {
+    setOpenFilter(null);
+    onFiltersChange({
+      ...filters,
+      type: filters.type === type && type !== "all" ? "all" : type,
     });
-    return [...byMonth.values()].map((group) => ({
-      ...group,
-      dates: [...group.dates.entries()],
-    }));
-  }, [items]);
+  };
+  const resetFilters = () => {
+    setOpenFilter(null);
+    onDateRangeChange({ from: "", to: "" });
+    onFiltersChange(defaultTransactionFilters);
+  };
+  const toggleFilter = (value: "period" | "category" | "account") =>
+    setOpenFilter((current) => (current === value ? null : value));
+
   return (
-    <div className="page-stack">
-      {mode !== "list" && (
-        <section
-          className={[
-            "surface filters-card",
-            filtersExpanded ? "is-expanded" : "",
-            filtersExpansionSettled ? "is-expansion-settled" : "",
-          ]
-            .filter(Boolean)
-            .join(" ")}
-        >
-          <div className="filter-card-heading">
-            <div>
-              <h2>Период и фильтры</h2>
-              <p>{dateRangeLabel(dateRange)}</p>
-            </div>
-            <div className="filter-card-actions">
-              <button
-                type="button"
-                className="filter-toggle"
-                aria-expanded={filtersExpanded}
-                aria-controls="transaction-filters"
-                onClick={() => {
-                  setFiltersExpansionSettled(false);
-                  onFiltersExpandedChange(!filtersExpanded);
-                }}
-              >
-                <Filter size={16} />
-                <span>{filtersExpanded ? "Скрыть" : "Фильтры"}</span>
-                <ChevronDown size={16} aria-hidden="true" />
-              </button>
-            </div>
-          </div>
-          <div
-            id="transaction-filters"
-            className="filter-card-collapse"
-            aria-hidden={!filtersExpanded}
-            onTransitionEnd={(event) => {
-              if (
-                event.target === event.currentTarget &&
-                event.propertyName === "grid-template-rows" &&
-                filtersExpanded
-              ) {
-                setFiltersExpansionSettled(true);
-              }
-            }}
-          >
-            <div className="filter-card-collapse-inner">
-              <div className="filter-fields is-compact">
-                <div className="filter-toolbar">
-                  <DateRangeFields
-                    value={dateRange}
-                    onChange={onDateRangeChange}
-                  />
-                </div>
-                <div className="filter-selects">
-                  <Select
-                    label="Все категории"
-                    value={filters.categoryId}
-                    onChange={(categoryId) =>
-                      onFiltersChange({ ...filters, categoryId })
-                    }
-                    options={[
-                      { value: "all", label: "Все категории" },
-                      ...data.categories
-                        .filter((item) => item.type !== "income")
-                        .map((item) => ({
-                          value: item.id,
-                          label: item.name,
-                        })),
-                    ]}
-                  />
-                  <Select
-                    label="Все счета"
-                    value={filters.accountId}
-                    onChange={(accountId) =>
-                      onFiltersChange({ ...filters, accountId })
-                    }
-                    options={[
-                      { value: "all", label: "Все счета и карты" },
-                      ...data.accounts.map((item) => ({
-                        value: item.id,
-                        label: `${item.name} · ${item.currency}`,
-                      })),
-                    ]}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
+    <div className="page-stack transactions-page">
       {mode !== "filters" && (
         <section className="surface operations-card">
-          <div className="section-heading">
+          <div className="section-heading operations-heading">
             <div>
               <h2>Операции за период</h2>
               <p>
@@ -1663,6 +1763,210 @@ function Transactions({
               <Plus size={18} /> Добавить
             </button>
           </div>
+          <div className="transactions-sticky-context" ref={stickyContext}>
+            {mode !== "list" && (
+              <div className="transaction-filters">
+                <div
+                  className="transaction-filter-rail"
+                  role="toolbar"
+                  aria-label="Фильтры операций"
+                >
+                  <button
+                    type="button"
+                    className={!hasActiveFilters ? "active" : ""}
+                    aria-pressed={!hasActiveFilters}
+                    onClick={resetFilters}
+                  >
+                    <Filter size={16} />
+                    <span>Все</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={filters.type === "expense" ? "active" : ""}
+                    aria-pressed={filters.type === "expense"}
+                    onClick={() => setTypeFilter("expense")}
+                  >
+                    Расходы
+                  </button>
+                  <button
+                    type="button"
+                    className={filters.type === "income" ? "active" : ""}
+                    aria-pressed={filters.type === "income"}
+                    onClick={() => setTypeFilter("income")}
+                  >
+                    Доходы
+                  </button>
+                  <button
+                    type="button"
+                    className={filters.type === "transfer" ? "active" : ""}
+                    aria-pressed={filters.type === "transfer"}
+                    onClick={() => setTypeFilter("transfer")}
+                  >
+                    Переводы
+                  </button>
+                  <button
+                    type="button"
+                    className={
+                      openFilter === "category" || filters.categoryId !== "all"
+                        ? "active"
+                        : ""
+                    }
+                    aria-expanded={openFilter === "category"}
+                    aria-controls="transaction-filter-panel"
+                    onClick={() => toggleFilter("category")}
+                  >
+                    <Tag size={16} />
+                    <span>{selectedCategory?.name || "Категории"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={
+                      openFilter === "account" || filters.accountId !== "all"
+                        ? "active"
+                        : ""
+                    }
+                    aria-expanded={openFilter === "account"}
+                    aria-controls="transaction-filter-panel"
+                    onClick={() => toggleFilter("account")}
+                  >
+                    <WalletCards size={16} />
+                    <span>{selectedAccount?.name || "Счета и карты"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={
+                      openFilter === "period" || dateRange.from || dateRange.to
+                        ? "active"
+                        : ""
+                    }
+                    aria-expanded={openFilter === "period"}
+                    aria-controls="transaction-filter-panel"
+                    onClick={() => toggleFilter("period")}
+                  >
+                    <CalendarDays size={16} />
+                    <span>
+                      {dateRange.from || dateRange.to
+                        ? dateRangeLabel(dateRange)
+                        : "Период"}
+                    </span>
+                  </button>
+                </div>
+                {openFilter && (
+                  <div
+                    className="transaction-filter-panel"
+                    id="transaction-filter-panel"
+                  >
+                    <div className="transaction-filter-panel-heading">
+                      <strong>
+                        {openFilter === "period"
+                          ? "Период операций"
+                          : openFilter === "category"
+                            ? "Категория"
+                            : "Счёт или карта"}
+                      </strong>
+                      <button
+                        type="button"
+                        aria-label="Закрыть фильтр"
+                        onClick={() => setOpenFilter(null)}
+                      >
+                        <X size={15} />
+                      </button>
+                    </div>
+                    {openFilter === "period" && (
+                      <DateRangeFields
+                        value={dateRange}
+                        onChange={onDateRangeChange}
+                      />
+                    )}
+                    {openFilter === "category" && (
+                      <Select
+                        label="Все категории"
+                        value={filters.categoryId}
+                        onChange={(categoryId) => {
+                          onFiltersChange({ ...filters, categoryId });
+                          setOpenFilter(null);
+                        }}
+                        options={[
+                          { value: "all", label: "Все категории" },
+                          ...data.categories.map((item) => ({
+                            value: item.id,
+                            label: item.name,
+                          })),
+                        ]}
+                      />
+                    )}
+                    {openFilter === "account" && (
+                      <Select
+                        label="Все счета"
+                        value={filters.accountId}
+                        onChange={(accountId) => {
+                          onFiltersChange({ ...filters, accountId });
+                          setOpenFilter(null);
+                        }}
+                        options={[
+                          { value: "all", label: "Все счета и карты" },
+                          ...data.accounts.map((item) => ({
+                            value: item.id,
+                            label: `${item.name} · ${item.currency}`,
+                          })),
+                        ]}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            {activeSummary && (
+              <header
+                className="operation-month-summary"
+                aria-live="polite"
+                aria-label={`Сводка за ${monthLabel(activeSummary.month)}`}
+              >
+                <div
+                  className="operation-month-title"
+                  key={activeSummary.month}
+                >
+                  <span>Месяц</span>
+                  <h3>{monthLabel(activeSummary.month)}</h3>
+                  <small>
+                    {operationsLabel(
+                      activeVisibleGroup?.count || activeSummary.count,
+                    )}
+                  </small>
+                </div>
+                <button
+                  type="button"
+                  className={`operation-month-metric expense ${filters.type === "expense" ? "active" : ""}`}
+                  aria-pressed={filters.type === "expense"}
+                  onClick={() => setTypeFilter("expense")}
+                >
+                  <span>Потратили</span>
+                  <strong>
+                    <AnimatedMoney value={activeSummary.expense} />
+                  </strong>
+                  <CategoryDistribution
+                    items={activeSummary.expenseCategories}
+                    label="Категории расходов"
+                  />
+                </button>
+                <button
+                  type="button"
+                  className={`operation-month-metric income ${filters.type === "income" ? "active" : ""}`}
+                  aria-pressed={filters.type === "income"}
+                  onClick={() => setTypeFilter("income")}
+                >
+                  <span>Получили</span>
+                  <strong>
+                    <AnimatedMoney value={activeSummary.income} />
+                  </strong>
+                  <CategoryDistribution
+                    items={activeSummary.incomeCategories}
+                    label="Категории доходов"
+                  />
+                </button>
+              </header>
+            )}
+          </div>
           <div className="operations-list full">
             {items.length ? (
               monthlyGroups.map((monthGroup) => (
@@ -1670,25 +1974,11 @@ function Transactions({
                   className="operation-month-group"
                   data-month={monthGroup.month}
                   key={monthGroup.month}
+                  ref={(node) => {
+                    if (node) monthGroups.current.set(monthGroup.month, node);
+                    else monthGroups.current.delete(monthGroup.month);
+                  }}
                 >
-                  <header
-                    className="operation-month-summary"
-                    aria-label={`Сводка за ${monthLabel(monthGroup.month)}`}
-                  >
-                    <div className="operation-month-title">
-                      <span>Месяц</span>
-                      <h3>{monthLabel(monthGroup.month)}</h3>
-                      <small>{operationsLabel(monthGroup.count)}</small>
-                    </div>
-                    <div className="operation-month-metric expense">
-                      <span>Потратили</span>
-                      <strong>{money(monthGroup.expense)}</strong>
-                    </div>
-                    <div className="operation-month-metric income">
-                      <span>Получили</span>
-                      <strong>{money(monthGroup.income)}</strong>
-                    </div>
-                  </header>
                   <div className="operation-month-dates">
                     {monthGroup.dates.map(([date, dateItems]) => (
                       <section className="operation-date-group" key={date}>
@@ -2583,7 +2873,6 @@ export default function App() {
     value: DateRange;
   } | null>(null);
   const [fontScale, setFontScale] = useState<FontScale>(savedFontScale);
-  const [filtersExpanded, setFiltersExpanded] = useState(savedFiltersExpanded);
   const [transaction, setTransaction] = useState<
     Transaction | null | undefined
   >(undefined);
@@ -2607,13 +2896,6 @@ export default function App() {
       // The setting still applies for this session when storage is restricted.
     }
   }, [fontScale]);
-  useEffect(() => {
-    try {
-      localStorage.setItem(filtersExpandedStorageKey, String(filtersExpanded));
-    } catch {
-      // The setting still applies for this session when storage is restricted.
-    }
-  }, [filtersExpanded]);
   useEffect(() => {
     setDateRange(null);
   }, [route]);
@@ -2959,8 +3241,6 @@ export default function App() {
               onFiltersChange={setTransactionFilters}
               edit={setTransaction}
               add={() => setTransaction(null)}
-              filtersExpanded={filtersExpanded}
-              onFiltersExpandedChange={setFiltersExpanded}
             />
           )}{" "}
           {/* Страница GPT временно отключена для пользователей. */}
