@@ -4053,6 +4053,8 @@ textarea:focus-visible {
     flex: 0 0 auto;
   }
   .transactions-sticky-context {
+    width: calc(100% + 20px);
+    max-width: calc(100% + 20px);
     top: max(8px, env(safe-area-inset-top));
     margin-inline: -10px;
     padding: 8px;
