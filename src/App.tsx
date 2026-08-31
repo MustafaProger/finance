@@ -1508,61 +1508,45 @@ type CategorySegment = {
   value: number;
 };
 
-type MonthlyOperationGroup = {
-  month: string;
+type OperationSummary = {
   income: number;
   expense: number;
   count: number;
   incomeCategories: CategorySegment[];
   expenseCategories: CategorySegment[];
+};
+
+type MonthlyOperationGroup = OperationSummary & {
+  month: string;
   dates: [string, Transaction[]][];
 };
 
-function groupTransactionsByMonth(data: AppData, items: Transaction[]) {
-  const byMonth = new Map<
-    string,
-    Omit<
-      MonthlyOperationGroup,
-      "incomeCategories" | "expenseCategories" | "dates"
-    > & {
-      incomeCategories: Map<string, number>;
-      expenseCategories: Map<string, number>;
-      dates: Map<string, Transaction[]>;
-    }
-  >();
+function summarizeTransactions(
+  data: AppData,
+  items: Transaction[],
+): OperationSummary {
+  const incomeCategories = new Map<string, number>();
+  const expenseCategories = new Map<string, number>();
+  let income = 0;
+  let expense = 0;
 
   items.forEach((item) => {
-    const month = item.date.slice(0, 7);
-    const monthGroup = byMonth.get(month) || {
-      month,
-      income: 0,
-      expense: 0,
-      count: 0,
-      incomeCategories: new Map<string, number>(),
-      expenseCategories: new Map<string, number>(),
-      dates: new Map<string, Transaction[]>(),
-    };
     if (item.type === "income" && item.toCurrency === "RUB") {
       const value = Number(item.toAmount || 0);
-      monthGroup.income += value;
-      monthGroup.incomeCategories.set(
+      income += value;
+      incomeCategories.set(
         item.categoryId,
-        (monthGroup.incomeCategories.get(item.categoryId) || 0) + value,
+        (incomeCategories.get(item.categoryId) || 0) + value,
       );
     }
     if (item.type === "expense" && item.fromCurrency === "RUB") {
       const value = Number(item.fromAmount || 0);
-      monthGroup.expense += value;
-      monthGroup.expenseCategories.set(
+      expense += value;
+      expenseCategories.set(
         item.categoryId,
-        (monthGroup.expenseCategories.get(item.categoryId) || 0) + value,
+        (expenseCategories.get(item.categoryId) || 0) + value,
       );
     }
-    monthGroup.count += 1;
-    const dateGroup = monthGroup.dates.get(item.date) || [];
-    dateGroup.push(item);
-    monthGroup.dates.set(item.date, dateGroup);
-    byMonth.set(month, monthGroup);
   });
 
   const categorySegments = (values: Map<string, number>) =>
@@ -1573,12 +1557,40 @@ function groupTransactionsByMonth(data: AppData, items: Transaction[]) {
       })
       .sort((left, right) => right.value - left.value);
 
-  return [...byMonth.values()].map<MonthlyOperationGroup>((group) => ({
-    ...group,
-    incomeCategories: categorySegments(group.incomeCategories),
-    expenseCategories: categorySegments(group.expenseCategories),
-    dates: [...group.dates.entries()],
-  }));
+  return {
+    income,
+    expense,
+    count: items.length,
+    incomeCategories: categorySegments(incomeCategories),
+    expenseCategories: categorySegments(expenseCategories),
+  };
+}
+
+function groupTransactionsByMonth(data: AppData, items: Transaction[]) {
+  const byMonth = new Map<string, Transaction[]>();
+
+  items.forEach((item) => {
+    const month = item.date.slice(0, 7);
+    const monthItems = byMonth.get(month) || [];
+    monthItems.push(item);
+    byMonth.set(month, monthItems);
+  });
+
+  return [...byMonth.entries()].map<MonthlyOperationGroup>(
+    ([month, monthItems]) => {
+      const dates = new Map<string, Transaction[]>();
+      monthItems.forEach((item) => {
+        const dateItems = dates.get(item.date) || [];
+        dateItems.push(item);
+        dates.set(item.date, dateItems);
+      });
+      return {
+        month,
+        ...summarizeTransactions(data, monthItems),
+        dates: [...dates.entries()],
+      };
+    },
+  );
 }
 
 function CategoryDistribution({
@@ -1622,9 +1634,11 @@ type AnalyticsMode = Extract<TransactionType, "expense" | "income">;
 function OperationCategoryBreakdown({
   items,
   mode,
+  emptyContext,
 }: {
   items: CategorySegment[];
   mode: AnalyticsMode;
+  emptyContext: string;
 }) {
   const emptyLabel = mode === "expense" ? "Нет расходов" : "Нет доходов";
   const label = mode === "expense" ? "Категории расходов" : "Категории доходов";
@@ -1643,7 +1657,9 @@ function OperationCategoryBreakdown({
         ))
       ) : (
         <li className="is-empty">
-          <span>{emptyLabel} в этом месяце</span>
+          <span>
+            {emptyLabel} {emptyContext}
+          </span>
           <strong>{money(0)}</strong>
         </li>
       )}
@@ -1656,13 +1672,15 @@ function OperationMonthMetric({
   summary,
   selected,
   categoriesExpanded,
+  emptyContext,
   onSelect,
   onToggleCategories,
 }: {
   mode: AnalyticsMode;
-  summary: MonthlyOperationGroup;
+  summary: OperationSummary;
   selected: boolean;
   categoriesExpanded: boolean;
+  emptyContext: string;
   onSelect: (mode: AnalyticsMode) => void;
   onToggleCategories: () => void;
 }) {
@@ -1701,7 +1719,11 @@ function OperationMonthMetric({
           aria-hidden={!categoriesExpanded}
         >
           <div>
-            <OperationCategoryBreakdown items={categories} mode={mode} />
+            <OperationCategoryBreakdown
+              items={categories}
+              mode={mode}
+              emptyContext={emptyContext}
+            />
           </div>
         </div>
       )}
@@ -1786,6 +1808,10 @@ function Transactions({
     () => new Map(monthlySummaries.map((group) => [group.month, group])),
     [monthlySummaries],
   );
+  const rangeSummary = useMemo(
+    () => summarizeTransactions(data, summaryItems),
+    [data, summaryItems],
+  );
   const visibleGroupsByMonth = useMemo(
     () => new Map(monthlyGroups.map((group) => [group.month, group])),
     [monthlyGroups],
@@ -1869,8 +1895,18 @@ function Transactions({
     };
   }, [analyticsMode, monthlySummaries]);
 
-  const activeSummary =
+  const hasCustomDateRange = Boolean(dateRange.from || dateRange.to);
+  const activeMonthSummary =
     summariesByMonth.get(activeMonth) || monthlySummaries[0];
+  const activeSummary = hasCustomDateRange ? rangeSummary : activeMonthSummary;
+  const summaryLabel = hasCustomDateRange
+    ? dateRangeLabel(dateRange)
+    : activeMonthSummary
+      ? monthLabel(activeMonthSummary.month)
+      : "текущий месяц";
+  const summaryEmptyContext = hasCustomDateRange
+    ? "за выбранный период"
+    : "в этом месяце";
   const hasActiveFilters =
     Boolean(dateRange.from || dateRange.to || filters.query) ||
     filters.type !== "all" ||
@@ -2111,7 +2147,7 @@ function Transactions({
               <header
                 className={`operation-month-summary ${analyticsMode ? "is-single" : ""}`}
                 aria-live="polite"
-                aria-label={`Сводка за ${monthLabel(activeSummary.month)}`}
+                aria-label={`Сводка: ${summaryLabel}`}
               >
                 {analyticsMode ? (
                   <OperationMonthMetric
@@ -2119,6 +2155,7 @@ function Transactions({
                     summary={activeSummary}
                     selected
                     categoriesExpanded={categoriesExpanded}
+                    emptyContext={summaryEmptyContext}
                     onSelect={setTypeFilter}
                     onToggleCategories={toggleCategories}
                   />
@@ -2129,6 +2166,7 @@ function Transactions({
                       summary={activeSummary}
                       selected={false}
                       categoriesExpanded={categoriesExpanded}
+                      emptyContext={summaryEmptyContext}
                       onSelect={setTypeFilter}
                       onToggleCategories={() => undefined}
                     />
@@ -2137,6 +2175,7 @@ function Transactions({
                       summary={activeSummary}
                       selected={false}
                       categoriesExpanded={categoriesExpanded}
+                      emptyContext={summaryEmptyContext}
                       onSelect={setTypeFilter}
                       onToggleCategories={() => undefined}
                     />
