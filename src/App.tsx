@@ -1,3 +1,4 @@
+import { Select } from "./Select";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -578,59 +579,6 @@ function DateRangeFields({
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function Select({
-  value,
-  options,
-  onChange,
-  label,
-}: {
-  value: string;
-  options: { value: string; label: string }[];
-  onChange: (value: string) => void;
-  label: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const current = options.find((item) => item.value === value)?.label || label;
-  return (
-    <div
-      className={`select-control ${open ? "is-open" : ""}`}
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
-      }}
-    >
-      <button
-        type="button"
-        className="select-trigger"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        onClick={() => setOpen((item) => !item)}
-      >
-        <span>{current}</span>
-        <ChevronDown size={17} />
-      </button>
-      {open && (
-        <div className="select-menu" role="listbox">
-          {options.map((item) => (
-            <button
-              type="button"
-              role="option"
-              aria-selected={item.value === value}
-              key={item.value}
-              onClick={() => {
-                onChange(item.value);
-                setOpen(false);
-              }}
-            >
-              <span>{item.label}</span>
-              {item.value === value && <Check size={16} />}
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -1378,34 +1326,32 @@ function TransactionModal({
           </div>
         )}
         {type !== "transfer" && !transaction?.savingsGoalId && (
-          <label className="management-field purpose-field">
+          <div className="management-field purpose-field">
             <span>Назначение операции</span>
-            <select
-              aria-label="Назначение операции"
-              value={accountingKind}
-              onChange={(e) =>
-                setAccountingKind(
-                  e.target.value as Transaction["accountingKind"],
-                )
+            <Select
+              label="Назначение операции"
+              value={accountingKind || "personal"}
+              onChange={(value) =>
+                setAccountingKind(value as Transaction["accountingKind"])
               }
-            >
-              <option value="personal">
-                {type === "income" ? "Заработок" : "Личная трата"}
-              </option>
-              {type === "income" && (
-                <option value="gift">Подарок / помощь — не заработок</option>
-              )}
-              <option value="entrusted">Чужие деньги / поручение</option>
-              <option value="debt">
-                Долг / возврат — без учёта в статистике
-              </option>
-            </select>
+              options={[
+                {
+                  value: "personal",
+                  label: type === "income" ? "Заработок" : "Личная трата",
+                },
+                ...(type === "income"
+                  ? [{ value: "gift", label: "Подарок / помощь" }]
+                  : []),
+                { value: "entrusted", label: "Чужие деньги / поручение" },
+                { value: "debt", label: "Долг / возврат" },
+              ]}
+            />
             <small>
               Чужие деньги и долги меняют остаток счёта, но не личные доходы и
               расходы. Подарки не входят в заработок. Для учёта задолженности
               используйте вкладку «Долги».
             </small>
-          </label>
+          </div>
         )}
         <div className="sheet-fields">
           <div className="sheet-row">

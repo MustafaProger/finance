@@ -1,3 +1,4 @@
+import { Select } from "./Select";
 import { categoryColors, categoryIcons } from "./categoryStyles";
 import { FormEvent, useMemo, useState } from "react";
 import {
@@ -139,21 +140,20 @@ function CategoryEditor({
           </div>
         </div>
         <div className="management-field">
-          <label>
-            Учёт операций категории
-            <select
-              aria-label="Учёт операций категории"
-              value={accountingKind}
-              onChange={(e) =>
-                setAccountingKind(e.target.value as Category["accountingKind"])
-              }
-            >
-              <option value="personal">Личные доходы и расходы</option>
-              <option value="gift">Подарок / помощь (поступления)</option>
-              <option value="entrusted">Чужие деньги / поручение</option>
-              <option value="debt">Долг / возврат</option>
-            </select>
-          </label>
+          <span>Учёт операций категории</span>
+          <Select
+            label="Учёт операций категории"
+            value={accountingKind || "personal"}
+            onChange={(value) =>
+              setAccountingKind(value as Category["accountingKind"])
+            }
+            options={[
+              { value: "personal", label: "Личные доходы и расходы" },
+              { value: "gift", label: "Подарок / помощь (поступления)" },
+              { value: "entrusted", label: "Чужие деньги / поручение" },
+              { value: "debt", label: "Долг / возврат" },
+            ]}
+          />
           {category && (
             <label>
               <input

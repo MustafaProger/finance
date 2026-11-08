@@ -73,6 +73,7 @@ export interface SavingsGoal {
 }
 
 export interface Debt {
+  purpose?: string;
   id: string;
   person: string;
   direction: "owe" | "owed";

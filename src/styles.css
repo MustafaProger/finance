@@ -4786,3 +4786,105 @@ textarea:focus-visible {
     grid-template-columns: 1fr;
   }
 }
+
+.empty-management .primary-button svg {
+  width: 18px;
+  height: 18px;
+  color: inherit;
+}
+.debt-sheet {
+  overflow-y: auto;
+}
+.debt-sheet > header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: #0e1625;
+}
+.debt-sheet .debt-amount {
+  padding: 26px 24px;
+  min-height: 130px;
+}
+.debt-amount > .select-control {
+  min-width: 72px;
+}
+.debt-amount .select-trigger {
+  font-size: 20px;
+}
+.debt-sheet .sheet-row {
+  grid-template-columns: auto 140px minmax(0, 1fr);
+}
+.debt-movement-toggle {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 0;
+  color: #a9b4c5;
+  font-size: calc(11px + var(--font-adjust));
+  cursor: pointer;
+}
+.debt-movement-toggle input {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  opacity: 0;
+}
+.debt-check {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #111d30;
+}
+.debt-check svg {
+  opacity: 0;
+}
+.debt-movement-toggle input:checked + .debt-check {
+  background: #3984ff;
+  border-color: #3984ff;
+  color: white;
+}
+.debt-movement-toggle input:checked + .debt-check svg {
+  opacity: 1;
+}
+.debt-movement-toggle input:focus-visible + .debt-check {
+  outline: 3px solid #7ab1ff;
+  outline-offset: 3px;
+}
+.debt-form-error {
+  padding: 0 24px 14px;
+}
+.purpose-field .select-trigger {
+  min-height: 45px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  padding: 0 14px;
+  background: #091321;
+}
+@media (max-width: 600px) {
+  .debt-sheet .sheet-row {
+    grid-template-columns: auto 105px minmax(0, 1fr);
+  }
+  .debt-sheet .debt-amount {
+    padding: 22px 16px;
+  }
+}
+.debts-page .primary-button svg {
+  width: 18px;
+  height: 18px;
+  color: inherit;
+}
+.debt-check,
+.debt-check svg {
+  pointer-events: none;
+}
+.debt-movement-toggle input {
+  z-index: 1;
+  cursor: pointer;
+  margin: 0;
+}

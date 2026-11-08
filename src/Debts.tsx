@@ -1,3 +1,4 @@
+import { Select } from "./Select";
 import { useState } from "react";
 import {
   Plus,
@@ -11,6 +12,10 @@ import {
   Check,
   CalendarDays,
   Pencil,
+  UserRound,
+  Target,
+  MessageCircle,
+  WalletCards,
 } from "lucide-react";
 import type { AppData, Debt } from "./types";
 import { debtMovement, debtRemaining } from "./debtLogic";
@@ -25,6 +30,8 @@ export function DebtsPage({
 }) {
   const [form, setForm] = useState<null | "new" | Debt>(null);
   const [editingDebt, setEditingDebt] = useState<Debt | null>(null);
+  const [purpose, setPurpose] = useState("");
+  const [currency, setCurrency] = useState(data.profile.currency || "RUB");
   const [person, setPerson] = useState("");
   const [direction, setDirection] = useState<Debt["direction"]>("owed");
   const [amount, setAmount] = useState("");
@@ -48,6 +55,10 @@ export function DebtsPage({
     setForm(value);
     setAmount(value === "new" ? "" : String(debtRemaining(data, value)));
     setPerson("");
+    setPurpose("");
+    setCurrency(
+      value === "new" ? data.profile.currency || "RUB" : value.currency,
+    );
     setNote("");
     setDueDate("");
     setDate(today());
@@ -74,7 +85,7 @@ export function DebtsPage({
     onChange(next);
   };
   return (
-    <div className="page-stack">
+    <div className="page-stack debts-page">
       <section className="surface management-hero">
         <div>
           <span className="management-hero-icon">
@@ -142,7 +153,7 @@ export function DebtsPage({
           <section className="surface empty-management savings-empty">
             <Handshake size={32} />
             <strong>Долгов пока нет</strong>
-            <span>Запишите, кому вы дали в долг или у кого заняли.</span>
+
             <button className="primary-button" onClick={() => open("new")}>
               <Plus /> Добавить долг
             </button>
@@ -230,6 +241,7 @@ export function DebtsPage({
                   ? `${overdue ? "Просрочен · " : "До "}${dateLabel(debt.dueDate, true)}`
                   : "Без срока возврата"}
               </p>
+              {debt.purpose && <p className="debt-note">{debt.purpose}</p>}
               {debt.note && <p className="debt-note">{debt.note}</p>}
               {remaining > 0 && (
                 <button
@@ -324,6 +336,7 @@ export function DebtsPage({
                 if (!debt) throw new Error("Долг не найден");
                 debt.person = person;
                 debt.note = String(fields.get("note") || "").trim();
+                debt.purpose = String(fields.get("purpose") || "").trim();
                 debt.dueDate = String(fields.get("dueDate") || "");
                 next.transactions
                   .filter((t) => t.debtId === debt.id)
@@ -348,11 +361,15 @@ export function DebtsPage({
               </button>
             </header>
             <label className="management-field">
-              Кто
+              <span>Кто</span>
               <input name="person" required defaultValue={editingDebt.person} />
             </label>
             <label className="management-field">
-              Срок возврата
+              <span>Для чего</span>
+              <input name="purpose" defaultValue={editingDebt.purpose || ""} />
+            </label>
+            <label className="management-field">
+              <span>Срок возврата</span>
               <input
                 name="dueDate"
                 type="date"
@@ -360,7 +377,7 @@ export function DebtsPage({
               />
             </label>
             <label className="management-field">
-              Комментарий
+              <span>Комментарий</span>
               <input name="note" defaultValue={editingDebt.note} />
             </label>
             <p>
@@ -378,7 +395,7 @@ export function DebtsPage({
       {form && (
         <div className="modal-backdrop">
           <form
-            className="management-modal"
+            className="transaction-sheet debt-sheet"
             role="dialog"
             aria-modal="true"
             aria-label={form === "new" ? "Новый долг" : "Возврат долга"}
@@ -388,10 +405,15 @@ export function DebtsPage({
               setSaving(true);
               setError("");
               try {
-                const value = Number(amount);
+                const value = Number(amount.replace(",", "."));
                 const account = data.accounts.find((a) => a.id === accountId);
-                if (!Number.isFinite(value) || value <= 0 || !account)
-                  throw new Error("Укажите положительную сумму и счёт");
+                if (!Number.isFinite(value) || Math.round(value * 100) <= 0)
+                  throw new Error("Укажите положительную сумму");
+                if (
+                  (form !== "new" || moveMoney) &&
+                  (!account || account.currency !== currency)
+                )
+                  throw new Error("Выберите счёт в валюте долга");
                 if (form === "new") {
                   if (!person.trim())
                     throw new Error("Укажите человека или организацию");
@@ -400,7 +422,8 @@ export function DebtsPage({
                     person: person.trim(),
                     direction,
                     amount: Math.round(value * 100) / 100,
-                    currency: account.currency,
+                    currency,
+                    purpose: purpose.trim(),
                     date,
                     dueDate,
                     note: note.trim(),
@@ -440,117 +463,183 @@ export function DebtsPage({
             }}
           >
             <header>
-              <h2>
-                {form === "new" ? "Новый долг" : `Возврат · ${form.person}`}
-              </h2>
               <button
+                className="sheet-icon"
                 type="button"
                 aria-label="Закрыть"
                 onClick={() => setForm(null)}
               >
-                <X />
+                <X size={21} />
+              </button>
+              {form === "new" ? (
+                <Select
+                  label="Направление долга"
+                  value={direction}
+                  onChange={(value) => setDirection(value as Debt["direction"])}
+                  options={[
+                    { value: "owed", label: "Мне должны" },
+                    { value: "owe", label: "Я должен" },
+                  ]}
+                />
+              ) : (
+                <strong>Возврат долга</strong>
+              )}
+              <button className="save-link" type="submit" disabled={saving}>
+                {saving ? "Сохраняем…" : "Сохранить"}
               </button>
             </header>
-            {form === "new" && (
-              <>
-                <label className="management-field">
-                  Кто
-                  <input
-                    required
-                    value={person}
-                    onChange={(e) => setPerson(e.target.value)}
-                  />
-                </label>
-                <label className="management-field">
-                  Направление
-                  <select
-                    value={direction}
-                    onChange={(e) =>
-                      setDirection(e.target.value as Debt["direction"])
-                    }
-                  >
-                    <option value="owed">Мне должны — я дал деньги</option>
-                    <option value="owe">Я должен — я взял деньги</option>
-                  </select>
-                </label>
-              </>
-            )}
-            <label className="management-field">
-              Сумма
+            <div className="amount-entry debt-amount">
+              <span>
+                {form === "new" ? (
+                  <Handshake size={24} />
+                ) : (
+                  <ArrowDownLeft size={24} />
+                )}
+              </span>
               <input
-                type="number"
-                min="0.01"
-                step="0.01"
-                required
+                autoFocus
+                inputMode="decimal"
+                type="text"
+                aria-label="Сумма"
+                placeholder="0"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
               />
-            </label>
-            <label className="management-field">
-              {form === "new" && !moveMoney
-                ? "Валюта по счёту (остаток не изменится)"
-                : "Счёт движения"}
-              <select
-                value={accountId}
-                onChange={(e) => setAccountId(e.target.value)}
-              >
-                {data.accounts
-                  .filter((a) => form === "new" || a.currency === form.currency)
-                  .map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name} · {a.currency}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <label className="management-field">
-              Дата
-              <input
-                type="date"
-                required
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-              />
-            </label>
-            {form === "new" && (
-              <>
-                <label className="management-field">
-                  Срок возврата (необязательно)
-                  <input
-                    type="date"
-                    min={date}
-                    value={dueDate}
-                    onChange={(e) => setDueDate(e.target.value)}
+              {form === "new" ? (
+                <Select
+                  label="Валюта долга"
+                  value={currency}
+                  onChange={(value) => {
+                    setCurrency(value);
+                    setAccountId(
+                      data.accounts.find((a) => a.currency === value)?.id || "",
+                    );
+                  }}
+                  options={[
+                    ...new Set([
+                      data.profile.currency || "RUB",
+                      "RUB",
+                      ...data.accounts.map((a) => a.currency),
+                    ]),
+                  ].map((value) => ({
+                    value,
+                    label: value === "RUB" ? "₽" : value,
+                  }))}
+                />
+              ) : (
+                <b>{currency === "RUB" ? "₽" : currency}</b>
+              )}
+            </div>
+            <div className="sheet-fields">
+              {form === "new" ? (
+                <>
+                  <label className="sheet-row">
+                    <UserRound size={20} />
+                    <span>
+                      {direction === "owe" ? "У кого взял" : "Кому дал"}
+                    </span>
+                    <input
+                      required
+                      aria-label="Кто"
+                      placeholder="Имя или организация"
+                      value={person}
+                      onChange={(e) => setPerson(e.target.value)}
+                    />
+                  </label>
+                  <label className="sheet-row">
+                    <Target size={20} />
+                    <span>Для чего</span>
+                    <input
+                      aria-label="Для чего"
+                      placeholder="Цель долга"
+                      value={purpose}
+                      onChange={(e) => setPurpose(e.target.value)}
+                    />
+                  </label>
+                </>
+              ) : (
+                <div className="sheet-row">
+                  <UserRound size={20} />
+                  <span>Кто</span>
+                  <strong>{form.person}</strong>
+                </div>
+              )}
+              <label className="sheet-row">
+                <CalendarDays size={20} />
+                <span>{form === "new" ? "Дата взятия" : "Дата возврата"}</span>
+                <input
+                  aria-label={form === "new" ? "Дата взятия" : "Дата возврата"}
+                  type="date"
+                  required
+                  min={form === "new" ? undefined : form.date}
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                />
+              </label>
+              {form === "new" && (
+                <>
+                  <label className="sheet-row">
+                    <CalendarDays size={20} />
+                    <span>Срок возврата</span>
+                    <input
+                      aria-label="Срок возврата"
+                      type="date"
+                      min={date}
+                      value={dueDate}
+                      onChange={(e) => setDueDate(e.target.value)}
+                    />
+                  </label>
+                  <label className="sheet-row">
+                    <MessageCircle size={20} />
+                    <span>Комментарий</span>
+                    <input
+                      aria-label="Комментарий"
+                      placeholder="Необязательно"
+                      value={note}
+                      onChange={(e) => setNote(e.target.value)}
+                    />
+                  </label>
+                  <label className="debt-movement-toggle">
+                    <input
+                      type="checkbox"
+                      checked={moveMoney}
+                      onChange={(e) => setMoveMoney(e.target.checked)}
+                    />
+                    <span className="debt-check">
+                      <Check size={14} />
+                    </span>
+                    <span>Записать движение денег по счёту</span>
+                  </label>
+                </>
+              )}
+              {(form !== "new" || moveMoney) && (
+                <div className="sheet-row">
+                  <WalletCards size={20} />
+                  <span>Счёт движения</span>
+                  <Select
+                    label="Счёт движения"
+                    value={accountId}
+                    onChange={setAccountId}
+                    options={data.accounts
+                      .filter((a) => a.currency === currency)
+                      .map((a) => ({ value: a.id, label: a.name }))}
                   />
-                </label>
-                <label className="management-field">
-                  Комментарий
-                  <input
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                  />
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={moveMoney}
-                    onChange={(e) => setMoveMoney(e.target.checked)}
-                  />{" "}
-                  Записать движение денег по счёту сейчас
-                </label>
-                <p>
-                  Для старого долга оставьте выключенным, чтобы не учесть деньги
-                  повторно.
-                </p>
-              </>
+                </div>
+              )}
+              {(form !== "new" || moveMoney) &&
+                !data.accounts.some((a) => a.currency === currency) && (
+                  <p className="management-error">
+                    Нет счёта в валюте {currency}. Добавьте его в обзоре.
+                  </p>
+                )}
+            </div>
+            {error && (
+              <p className="management-error debt-form-error" role="alert">
+                {error}
+              </p>
             )}
-            {error && <p role="alert">{error}</p>}
-            <button
-              className="management-submit"
-              type="submit"
-              disabled={saving}
-            >
-              Сохранить
+            <button className="mobile-save" type="submit" disabled={saving}>
+              Сохранить долг
             </button>
           </form>
         </div>
