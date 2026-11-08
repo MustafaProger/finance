@@ -59,3 +59,38 @@ export function debtMovement(
   next.lastAccountId = account.id;
   return next;
 }
+
+export function updateDebtAmount(
+  data: AppData,
+  debtId: string,
+  amount: number,
+): AppData {
+  const value = Math.round(amount * 100) / 100;
+  if (!Number.isFinite(value) || value <= 0)
+    throw new Error("Укажите положительную сумму");
+  const current = data.debts?.find((d) => d.id === debtId);
+  if (!current) throw new Error("Долг не найден");
+  const repaid =
+    Math.round((current.amount - debtRemaining(data, current)) * 100) / 100;
+  if (value < repaid)
+    throw new Error("Сумма долга не может быть меньше уже возвращённой суммы");
+  const next = structuredClone(data);
+  const debt = next.debts!.find((d) => d.id === debtId)!;
+  if (value !== debt.amount) {
+    const openings = next.transactions.filter(
+      (t) => t.debtId === debtId && t.debtAction === "opening",
+    );
+    if (openings.length > 1)
+      throw new Error(
+        "У долга несколько выдач. Сначала проверьте историю движений",
+      );
+    for (const t of openings) {
+      adjustCurrentBalances(next, t, -1);
+      if (t.type === "income") t.toAmount = value;
+      else t.fromAmount = value;
+      adjustCurrentBalances(next, t);
+    }
+    debt.amount = value;
+  }
+  return next;
+}

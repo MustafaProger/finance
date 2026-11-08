@@ -156,6 +156,58 @@ try {
       "2026-11-08",
     ),
   );
+  for (const direction of ["owe", "owed"]) {
+    const debt = {
+      id: "edit",
+      direction,
+      amount: 270000,
+      currency: "RUB",
+      person: "Тест",
+    };
+    const original = { ...structuredClone(base), debts: [debt] };
+    let data = d.debtMovement(
+      original,
+      debt,
+      "a",
+      35000,
+      "repayment",
+      "2026-11-08",
+    );
+    const corrected = d.updateDebtAmount(data, debt.id, 275000);
+    assert.equal(d.debtRemaining(corrected, corrected.debts[0]), 240000);
+    assert.deepEqual(corrected.transactions, data.transactions);
+    assert.deepEqual(corrected.accounts, data.accounts);
+    assert.equal(data.debts[0].amount, 270000);
+    assert.throws(() => d.updateDebtAmount(data, debt.id, 34999));
+    for (const invalid of [0, -1, NaN, Infinity])
+      assert.throws(() => d.updateDebtAmount(data, debt.id, invalid));
+    assert.equal(
+      d.debtRemaining(d.updateDebtAmount(data, debt.id, 35000), {
+        ...debt,
+        amount: 35000,
+      }),
+      0,
+    );
+    data = d.debtMovement(
+      original,
+      debt,
+      "a",
+      debt.amount,
+      "opening",
+      "2026-11-08",
+    );
+    const changed = d.updateDebtAmount(data, debt.id, 275000);
+    assert.equal(
+      changed.accounts[0].currentBalance - data.accounts[0].currentBalance,
+      direction === "owe" ? 5000 : -5000,
+    );
+    assert.equal(changed.transactions.length, 1);
+    assert.deepEqual(f.statsFor(changed, "2026-11"), {
+      income: 0,
+      expense: 0,
+      transfers: 0,
+    });
+  }
   const styled = c.distinguishCategories(base);
   assert.notEqual(styled.categories[0].color, styled.categories[1].color);
   assert.notEqual(styled.categories[0].icon, styled.categories[1].icon);

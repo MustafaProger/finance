@@ -340,14 +340,16 @@ function filterTransactions(
     .filter(
       (item) =>
         filters.type === "all" ||
-        (filters.type === "other"
-          ? !isPersonalFlow(item)
-          : filters.type === "transfer"
-            ? item.type === "transfer" ||
-              Boolean(
-                item.savingsGoalId || item.categoryId === "system-savings",
-              )
-            : item.type === filters.type && isPersonalFlow(item)),
+        (filters.type === "debt"
+          ? Boolean(item.debtId || item.accountingKind === "debt")
+          : filters.type === "other"
+            ? !isPersonalFlow(item)
+            : filters.type === "transfer"
+              ? item.type === "transfer" ||
+                Boolean(
+                  item.savingsGoalId || item.categoryId === "system-savings",
+                )
+              : item.type === filters.type && isPersonalFlow(item)),
     )
     .filter(
       (item) =>
@@ -1520,6 +1522,52 @@ function Overview({
         onViewTransactions={onViewTransactions}
         onChange={onChange}
       />
+      <section className="surface overview-debt-movements">
+        <div className="section-heading">
+          <div>
+            <h2>Долги и возвраты</h2>
+            <p>
+              {monthLabel(selectedMonth)} · Движения по счетам, отдельно от
+              личных расходов
+            </p>
+          </div>
+        </div>
+        {data.transactions.filter(
+          (t) =>
+            (t.debtId || t.accountingKind === "debt") &&
+            t.date.startsWith(selectedMonth),
+        ).length === 0 ? (
+          <p>В этом месяце движений по долгам нет.</p>
+        ) : (
+          [...data.transactions]
+            .filter(
+              (t) =>
+                (t.debtId || t.accountingKind === "debt") &&
+                t.date.startsWith(selectedMonth),
+            )
+            .sort((a, b) => b.date.localeCompare(a.date))
+            .map((t) => (
+              <div className="debt-history-row" key={t.id}>
+                <div>
+                  <strong>
+                    {operationPurpose(t)} · {t.payee}
+                  </strong>
+                  <small>
+                    {dateLabel(t.date, true)} ·{" "}
+                    {t.type === "income" ? t.toAccount : t.fromAccount}
+                  </small>
+                </div>
+                <span>
+                  {t.type === "income" ? "+" : "−"}
+                  {money(
+                    t.type === "income" ? t.toAmount : t.fromAmount,
+                    t.type === "income" ? t.toCurrency : t.fromCurrency,
+                  )}
+                </span>
+              </div>
+            ))
+        )}
+      </section>
       <section className="surface structure-card">
         <div className="section-heading">
           <div>
@@ -1976,7 +2024,7 @@ function Transactions({
     filters.type !== "all" ||
     filters.categoryId !== "all" ||
     filters.accountId !== "all";
-  const setTypeFilter = (type: TransactionType | "all" | "other") => {
+  const setTypeFilter = (type: TransactionType | "all" | "other" | "debt") => {
     const nextType = filters.type === type && type !== "all" ? "all" : type;
     setOpenFilter(null);
     if (nextType === "expense" || nextType === "income") {
@@ -2094,6 +2142,14 @@ function Transactions({
                     onClick={() => setTypeFilter("transfer")}
                   >
                     Переводы
+                  </button>
+                  <button
+                    type="button"
+                    className={filters.type === "debt" ? "active" : ""}
+                    aria-pressed={filters.type === "debt"}
+                    onClick={() => setTypeFilter("debt")}
+                  >
+                    Долги и возвраты
                   </button>
                   <button
                     type="button"

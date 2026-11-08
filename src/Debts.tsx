@@ -18,7 +18,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import type { AppData, Debt } from "./types";
-import { debtMovement, debtRemaining } from "./debtLogic";
+import { debtMovement, debtRemaining, updateDebtAmount } from "./debtLogic";
 import { adjustCurrentBalances, money, dateLabel } from "./format";
 const today = () => new Date().toLocaleDateString("en-CA");
 export function DebtsPage({
@@ -325,7 +325,7 @@ export function DebtsPage({
       {editingDebt && (
         <div className="modal-backdrop">
           <form
-            className="management-modal"
+            className="transaction-sheet debt-sheet"
             role="dialog"
             aria-modal="true"
             aria-label="Изменить долг"
@@ -337,7 +337,15 @@ export function DebtsPage({
               if (!person) return;
               setSaving(true);
               try {
-                const next = structuredClone(data);
+                const next = updateDebtAmount(
+                  data,
+                  editingDebt.id,
+                  Number(
+                    String(fields.get("amount") || "")
+                      .replace(/\s/g, "")
+                      .replace(",", "."),
+                  ),
+                );
                 const debt = next.debts?.find((d) => d.id === editingDebt.id);
                 if (!debt) throw new Error("Долг не найден");
                 debt.person = person;
@@ -357,43 +365,106 @@ export function DebtsPage({
             }}
           >
             <header>
-              <h2>Изменить долг</h2>
               <button
+                className="sheet-icon"
                 type="button"
                 aria-label="Закрыть"
                 onClick={() => setEditingDebt(null)}
               >
-                <X />
+                <X size={21} />
+              </button>
+              <strong>Изменить долг</strong>
+              <button className="save-link" type="submit" disabled={saving}>
+                {saving ? "Сохраняем…" : "Сохранить"}
               </button>
             </header>
-            <label className="management-field">
-              <span>Кто</span>
-              <input name="person" required defaultValue={editingDebt.person} />
-            </label>
-            <label className="management-field">
-              <span>Для чего</span>
-              <input name="purpose" defaultValue={editingDebt.purpose || ""} />
-            </label>
-            <label className="management-field">
-              <span>Срок возврата</span>
+            <div className="amount-entry debt-amount">
+              <span>
+                <Handshake size={24} />
+              </span>
               <input
-                name="dueDate"
-                type="date"
-                defaultValue={editingDebt.dueDate}
+                name="amount"
+                aria-label="Общая сумма долга"
+                inputMode="decimal"
+                required
+                defaultValue={editingDebt.amount}
+                autoFocus
               />
-            </label>
-            <label className="management-field">
-              <span>Комментарий</span>
-              <input name="note" defaultValue={editingDebt.note} />
-            </label>
-            <p>
-              Первоначальная сумма:{" "}
-              {money(editingDebt.amount, editingDebt.currency)}. Дополнительную
-              выдачу запишите отдельным долгом.
-            </p>
-            {error && <p role="alert">{error}</p>}
-            <button className="management-submit" disabled={saving}>
-              Сохранить
+              <b>
+                {editingDebt.currency === "RUB" ? "₽" : editingDebt.currency}
+              </b>
+            </div>
+            <div className="sheet-fields">
+              <div className="sheet-row">
+                <Handshake size={20} />
+                <span>Направление</span>
+                <strong>
+                  {editingDebt.direction === "owe" ? "Я должен" : "Мне должны"}
+                </strong>
+              </div>
+              <label className="sheet-row">
+                <UserRound size={20} />
+                <span>
+                  {editingDebt.direction === "owe" ? "У кого взял" : "Кому дал"}
+                </span>
+                <input
+                  name="person"
+                  aria-label="Кто"
+                  required
+                  defaultValue={editingDebt.person}
+                />
+              </label>
+              <label className="sheet-row">
+                <Target size={20} />
+                <span>Для чего</span>
+                <input
+                  name="purpose"
+                  aria-label="Для чего"
+                  defaultValue={editingDebt.purpose || ""}
+                />
+              </label>
+              <div className="sheet-row">
+                <CalendarDays size={20} />
+                <span>Дата взятия</span>
+                <strong>{dateLabel(editingDebt.date, true)}</strong>
+              </div>
+              <label className="sheet-row">
+                <CalendarDays size={20} />
+                <span>Срок возврата</span>
+                <input
+                  name="dueDate"
+                  aria-label="Срок возврата"
+                  type="date"
+                  min={editingDebt.date}
+                  defaultValue={editingDebt.dueDate}
+                />
+              </label>
+              <label className="sheet-row">
+                <MessageCircle size={20} />
+                <span>Комментарий</span>
+                <input
+                  name="note"
+                  aria-label="Комментарий"
+                  defaultValue={editingDebt.note}
+                />
+              </label>
+              <p className="debt-edit-hint">
+                Общая сумма долга до возвратов. Уже возвращено{" "}
+                {money(
+                  editingDebt.amount - debtRemaining(data, editingDebt),
+                  editingDebt.currency,
+                )}
+                . Если выдача записана по счёту, её сумма и баланс будут
+                скорректированы.
+              </p>
+            </div>
+            {error && (
+              <p className="management-error debt-form-error" role="alert">
+                {error}
+              </p>
+            )}
+            <button className="mobile-save" type="submit" disabled={saving}>
+              {saving ? "Сохраняем…" : "Сохранить долг"}
             </button>
           </form>
         </div>

@@ -4888,3 +4888,17 @@ textarea:focus-visible {
   cursor: pointer;
   margin: 0;
 }
+
+.debt-edit-hint {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 16px 0;
+}
+.overview-debt-movements {
+  grid-column: 1 / -1;
+  padding: 24px;
+}
+.overview-debt-movements .debt-history-row {
+  gap: 16px;
+}
