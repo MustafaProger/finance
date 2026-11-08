@@ -31,7 +31,7 @@ export function DebtsPage({
   const [form, setForm] = useState<null | "new" | Debt>(null);
   const [editingDebt, setEditingDebt] = useState<Debt | null>(null);
   const [purpose, setPurpose] = useState("");
-  const [currency, setCurrency] = useState(data.profile.currency || "RUB");
+  const [currency, setCurrency] = useState("RUB");
   const [person, setPerson] = useState("");
   const [direction, setDirection] = useState<Debt["direction"]>("owed");
   const [amount, setAmount] = useState("");
@@ -56,14 +56,20 @@ export function DebtsPage({
     setAmount(value === "new" ? "" : String(debtRemaining(data, value)));
     setPerson("");
     setPurpose("");
-    setCurrency(
-      value === "new" ? data.profile.currency || "RUB" : value.currency,
-    );
+    setCurrency(value === "new" ? "RUB" : value.currency);
     setNote("");
     setDueDate("");
     setDate(today());
     setMoveMoney(false);
     setError("");
+    if (value === "new")
+      setAccountId(
+        data.accounts.find(
+          (a) => a.id === data.lastAccountId && a.currency === "RUB",
+        )?.id ||
+          data.accounts.find((a) => a.currency === "RUB")?.id ||
+          "",
+      );
     if (value !== "new")
       setAccountId(
         data.accounts.find((a) => a.currency === value.currency)?.id || "",
@@ -505,30 +511,7 @@ export function DebtsPage({
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
               />
-              {form === "new" ? (
-                <Select
-                  label="Валюта долга"
-                  value={currency}
-                  onChange={(value) => {
-                    setCurrency(value);
-                    setAccountId(
-                      data.accounts.find((a) => a.currency === value)?.id || "",
-                    );
-                  }}
-                  options={[
-                    ...new Set([
-                      data.profile.currency || "RUB",
-                      "RUB",
-                      ...data.accounts.map((a) => a.currency),
-                    ]),
-                  ].map((value) => ({
-                    value,
-                    label: value === "RUB" ? "₽" : value,
-                  }))}
-                />
-              ) : (
-                <b>{currency === "RUB" ? "₽" : currency}</b>
-              )}
+              {form !== "new" && <b>{currency === "RUB" ? "₽" : currency}</b>}
             </div>
             <div className="sheet-fields">
               {form === "new" ? (
