@@ -4589,3 +4589,200 @@ textarea:focus-visible {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Debt surfaces share the existing savings cards and action controls. */
+.debt-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.debt-summary {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 26px;
+}
+.debt-direction-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: 16px;
+  color: #34d399;
+  border: 1px solid #34d39933;
+  background: #34d39912;
+}
+.debt-summary.owe .debt-direction-icon {
+  color: #fbbf24;
+  border-color: #fbbf2433;
+  background: #fbbf2412;
+}
+.debt-summary > div {
+  min-width: 0;
+}
+.debt-eyebrow,
+.debt-summary small {
+  display: block;
+  color: var(--muted);
+  font-size: calc(11px + var(--font-adjust));
+}
+.debt-summary strong {
+  display: block;
+  font-size: calc(30px + var(--font-adjust));
+  font-weight: 800;
+  letter-spacing: -1px;
+  margin: 5px 0;
+  overflow-wrap: anywhere;
+}
+.debt-summary small {
+  font-size: calc(10px + var(--font-adjust));
+}
+.debt-section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0 -2px;
+}
+.debt-section-heading h2 {
+  font-size: calc(15px + var(--font-adjust));
+  margin: 0;
+}
+.debt-section-heading h2 span {
+  display: inline-grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  margin-left: 7px;
+  background: #ffffff08;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.debt-section-heading > span {
+  font-size: calc(10px + var(--font-adjust));
+  color: var(--muted);
+}
+.debt-record {
+  align-self: start;
+}
+.debt-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 10px;
+  color: var(--saving);
+  font-size: calc(10px + var(--font-adjust));
+}
+.debt-record .savings-card-copy strong {
+  overflow-wrap: anywhere;
+}
+.debt-due {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: calc(10px + var(--font-adjust));
+  margin: 14px 0 0;
+}
+.debt-due.overdue {
+  color: #fb7185;
+}
+.debt-note {
+  color: var(--muted);
+  font-size: calc(11px + var(--font-adjust));
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.debt-history {
+  border-top: 1px solid var(--line);
+  margin-top: 18px;
+  padding-top: 14px;
+}
+.debt-history summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--muted);
+  font-size: calc(10px + var(--font-adjust));
+}
+.debt-history summary::-webkit-details-marker {
+  display: none;
+}
+.debt-history summary small {
+  margin-left: auto;
+}
+.debt-history[open] summary > svg:last-child {
+  transform: rotate(180deg);
+}
+.debt-history-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 14px;
+  font-size: calc(10px + var(--font-adjust));
+}
+.debt-history-row > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.debt-history-row strong,
+.debt-history-row small {
+  display: block;
+}
+.debt-history-row small {
+  color: var(--muted);
+  margin-top: 5px;
+}
+.debt-history-row .card-actions button {
+  width: 28px;
+  height: 28px;
+}
+.debt-history-row .card-actions svg {
+  width: 13px;
+}
+.management-field select,
+.purpose-field select {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #091321;
+  color: #f1f5f9;
+  font: inherit;
+}
+.purpose-field {
+  margin: 16px 24px;
+}
+.purpose-field small {
+  color: var(--muted);
+  line-height: 1.6;
+}
+@media (max-width: 600px) {
+  .debt-summary-grid {
+    gap: 10px;
+  }
+  .debt-summary {
+    padding: 17px;
+    display: block;
+  }
+  .debt-direction-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 12px;
+    margin-bottom: 12px;
+  }
+  .debt-summary strong {
+    font-size: calc(23px + var(--font-adjust));
+  }
+  .debt-section-heading > span {
+    display: none;
+  }
+  .debt-grid {
+    grid-template-columns: 1fr;
+  }
+}

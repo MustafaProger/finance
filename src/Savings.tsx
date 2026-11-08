@@ -187,9 +187,13 @@ function GoalAdjustment({
   const [mode, setMode] = useState<SavingsAdjustmentMode>("deposit");
   const [amount, setAmount] = useState("");
   const accounts = data.accounts.filter(
-    (account) => account.currency === (data.profile.currency || "RUB"),
+    (account) => account.currency === "RUB",
   );
-  const [accountId, setAccountId] = useState(accounts[0]?.id || "");
+  const [accountId, setAccountId] = useState(
+    accounts.find((a) => a.id === data.lastAccountId)?.id ||
+      accounts[0]?.id ||
+      "",
+  );
   const numericAmount = Number(amount);
   const canSubmit =
     Boolean(accountId) &&
@@ -283,7 +287,7 @@ function GoalAdjustment({
           </div>
           {!accounts.length ? (
             <small className="savings-account-empty">
-              Нет счетов в валюте {data.profile.currency || "RUB"}
+              Нет счетов в валюте RUB
             </small>
           ) : null}
         </div>
@@ -333,6 +337,12 @@ export function SavingsPage({
     setAdjusting(undefined);
   };
   const remove = async (goal: SavingsGoal) => {
+    if (goal.balance !== 0) {
+      alert(
+        "Сначала переведите деньги из накопления на счёт. Удалить можно только пустое накопление.",
+      );
+      return;
+    }
     if (!confirm(`Удалить накопление «${goal.name}»?`)) return;
     await onChange({
       ...data,

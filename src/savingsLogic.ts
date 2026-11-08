@@ -54,7 +54,8 @@ export function undoSavingsAdjustment(data: AppData, transaction: Transaction) {
   const goal = data.savingsGoals.find((item) => item.id === link.goalId);
   if (!goal) return false;
   const amount = savingsAdjustmentAmount(transaction, link.mode);
-  if (!(amount > 0)) return false;
+  if (!(amount > 0) || (link.mode === "deposit" && amount > goal.balance))
+    return false;
   goal.balance =
     link.mode === "deposit"
       ? Math.max(0, goal.balance - amount)
@@ -70,14 +71,14 @@ export function syncSavingsAdjustmentEdit(
   const link = savingsAdjustmentLink(data, existing);
   if (!link) return replacement;
   const goal = data.savingsGoals.find((item) => item.id === link.goalId);
-  if (!goal || !undoSavingsAdjustment(data, existing)) return replacement;
-
+  if (!goal) return null;
   const amount = savingsAdjustmentAmount(replacement, link.mode);
-  if (!(amount > 0) || (link.mode === "withdraw" && amount > goal.balance))
-    return null;
-
-  goal.balance =
-    link.mode === "deposit" ? goal.balance + amount : goal.balance - amount;
+  const oldAmount = savingsAdjustmentAmount(existing, link.mode);
+  const balance =
+    goal.balance +
+    (link.mode === "deposit" ? amount - oldAmount : oldAmount - amount);
+  if (!Number.isFinite(amount) || !(amount > 0) || balance < 0) return null;
+  goal.balance = balance;
   const accountName =
     link.mode === "deposit"
       ? replacement.fromAccount
@@ -118,7 +119,14 @@ export function applySavingsAdjustment(
   const next = structuredClone(data);
   const goal = next.savingsGoals.find((item) => item.id === goalId);
   const account = next.accounts.find((item) => item.id === accountId);
-  if (!goal || !account || !(amount > 0)) return null;
+  if (
+    !goal ||
+    !account ||
+    account.currency !== "RUB" ||
+    !Number.isFinite(amount) ||
+    !(amount > 0)
+  )
+    return null;
 
   const appliedAmount =
     mode === "withdraw" ? Math.min(amount, goal.balance) : amount;
@@ -152,6 +160,7 @@ export function applySavingsAdjustment(
     savingsAdjustment: mode,
   };
 
+  next.lastAccountId = account.id;
   next.transactions.push(transaction);
   adjustCurrentBalances(next, transaction);
   return next;

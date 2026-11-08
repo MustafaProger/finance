@@ -11,6 +11,7 @@ export interface Account {
 }
 
 export interface Category {
+  accountingKind?: "personal" | "gift" | "entrusted" | "debt";
   id: string;
   name: string;
   type: "expense" | "income" | "mixed";
@@ -38,6 +39,9 @@ export interface Transaction {
   tags?: string[];
   location?: string;
   repeat?: boolean;
+  accountingKind?: "personal" | "gift" | "entrusted" | "debt";
+  debtId?: string;
+  debtAction?: "opening" | "repayment";
   savingsGoalId?: string;
   savingsAdjustment?: "deposit" | "withdraw";
 }
@@ -68,7 +72,22 @@ export interface SavingsGoal {
   createdAt: string;
 }
 
+export interface Debt {
+  id: string;
+  person: string;
+  direction: "owe" | "owed";
+  amount: number;
+  currency: string;
+  date: string;
+  dueDate?: string;
+  note: string;
+  createdAt: string;
+}
+
 export interface AppData {
+  debts?: Debt[];
+  lastAccountId?: string;
+  categoryStyleVersion?: number;
   version: number;
   generatedAt: string;
   updatedAt?: string;
@@ -85,5 +104,6 @@ export type Route =
   | "transactions"
   | "budgets"
   | "savings"
+  | "debts"
   | "categories"
   | "settings";

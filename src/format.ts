@@ -1,5 +1,40 @@
 import type { AppData, Category, Transaction } from "./types";
 
+export const isPersonalFlow = (item: Transaction) =>
+  !item.savingsGoalId &&
+  !item.savingsAdjustment &&
+  item.categoryId !== "system-savings" &&
+  !item.id.startsWith("saving-operation-") &&
+  !item.debtId &&
+  (!item.accountingKind || item.accountingKind === "personal");
+
+export const operationPurpose = (item: Transaction) =>
+  item.savingsGoalId ||
+  item.categoryId === "system-savings" ||
+  item.id.startsWith("saving-operation-")
+    ? "Перевод в/из накопления"
+    : item.debtId || item.accountingKind === "debt"
+      ? "Долг / возврат"
+      : item.accountingKind === "entrusted"
+        ? "Чужие деньги / поручение"
+        : item.accountingKind === "gift"
+          ? "Подарок / помощь"
+          : "";
+
+export const latestAccountName = (data: AppData) => {
+  const saved = data.accounts.find((a) => a.id === data.lastAccountId);
+  if (saved) return saved.name;
+  const latest = [...data.transactions].sort(
+    (a, b) =>
+      Date.parse(b.createdAt || b.date) - Date.parse(a.createdAt || a.date),
+  );
+  for (const item of latest) {
+    const name = item.type === "income" ? item.toAccount : item.fromAccount;
+    if (data.accounts.some((a) => a.name === name)) return name;
+  }
+  return data.accounts[0]?.name || "";
+};
+
 export const SAVINGS_CATEGORY_ID = "system-savings";
 
 export const money = (
@@ -68,21 +103,23 @@ export const compareTransactionsNewest = (
 
 export const categoryOf = (data: AppData, id: string): Category =>
   data.categories.find((item) => item.id === id) ??
-  (id === SAVINGS_CATEGORY_ID
-    ? {
-        id: SAVINGS_CATEGORY_ID,
-        name: "Накопления",
-        type: "mixed",
-        icon: "bank",
-        color: "#3B82F6",
-      }
-    : {
-        id: "none",
-        name: "Без категории",
-        type: "mixed",
-        icon: "circle",
-        color: "#64748b",
-      });
+  (id === "system-debt"
+    ? { id, name: "Долги", type: "mixed", icon: "handshake", color: "#FBBF24" }
+    : id === SAVINGS_CATEGORY_ID
+      ? {
+          id: SAVINGS_CATEGORY_ID,
+          name: "Накопления",
+          type: "mixed",
+          icon: "bank",
+          color: "#3B82F6",
+        }
+      : {
+          id: "none",
+          name: "Без категории",
+          type: "mixed",
+          icon: "circle",
+          color: "#64748b",
+        });
 
 export const prevMonth = (key: string) => {
   const [year, month] = key.split("-").map(Number);
@@ -105,9 +142,17 @@ export const statsFor = (data: AppData, month: string) =>
     .filter((item) => item.date.startsWith(month))
     .reduce(
       (result, item) => {
-        if (item.type === "income" && item.toCurrency === "RUB")
+        if (
+          isPersonalFlow(item) &&
+          item.type === "income" &&
+          item.toCurrency === "RUB"
+        )
           result.income += Number(item.toAmount || 0);
-        if (item.type === "expense" && item.fromCurrency === "RUB")
+        if (
+          isPersonalFlow(item) &&
+          item.type === "expense" &&
+          item.fromCurrency === "RUB"
+        )
           result.expense += Number(item.fromAmount || 0);
         if (item.type === "transfer") result.transfers += 1;
         return result;
@@ -124,9 +169,17 @@ export const statsForRange = (
     .filter((item) => item.date >= dateFrom && item.date <= dateTo)
     .reduce(
       (result, item) => {
-        if (item.type === "income" && item.toCurrency === "RUB")
+        if (
+          isPersonalFlow(item) &&
+          item.type === "income" &&
+          item.toCurrency === "RUB"
+        )
           result.income += Number(item.toAmount || 0);
-        if (item.type === "expense" && item.fromCurrency === "RUB")
+        if (
+          isPersonalFlow(item) &&
+          item.type === "expense" &&
+          item.fromCurrency === "RUB"
+        )
           result.expense += Number(item.fromAmount || 0);
         if (item.type === "transfer") result.transfers += 1;
         return result;
@@ -145,6 +198,7 @@ export const categoryStats = (
       (item) =>
         item.date.startsWith(month) &&
         item.type === type &&
+        isPersonalFlow(item) &&
         currencyOf(item) === "RUB",
     )
     .forEach((item) =>
@@ -171,6 +225,7 @@ export const categoryStatsForRange = (
         item.date >= dateFrom &&
         item.date <= dateTo &&
         item.type === type &&
+        isPersonalFlow(item) &&
         currencyOf(item) === "RUB",
     )
     .forEach((item) =>

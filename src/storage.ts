@@ -1,3 +1,4 @@
+import { distinguishCategories } from "./categoryStyles";
 import {
   collection,
   doc,
@@ -100,12 +101,13 @@ function createEmptyData(name = "Пользователь"): AppData {
 }
 
 function normalizeData(data: AppData): AppData {
-  return {
+  return distinguishCategories({
     ...data,
     budgets: data.budgets || [],
     savingsGoals: data.savingsGoals || [],
     transactions: data.transactions || [],
-  };
+    debts: data.debts || [],
+  });
 }
 
 function requireDb() {

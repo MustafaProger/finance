@@ -1,3 +1,4 @@
+import { categoryColors, categoryIcons } from "./categoryStyles";
 import { FormEvent, useMemo, useState } from "react";
 import {
   Check,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 import type { AppData, Budget, BudgetItem, Category } from "./types";
 import {
+  isPersonalFlow,
   accountBalance,
   adjustCurrentBalances,
   categoryOf,
@@ -42,90 +44,52 @@ const completedBudgetTotal = (
     0,
   ) || 0;
 
-const colors = [
-  "#718096",
-  "#A78BFA",
-  "#F472B6",
-  "#EF4444",
-  "#F97316",
-  "#FFB020",
-  "#10B981",
-  "#14B8A6",
-  "#3B82F6",
-  "#6366F1",
-];
-const iconNames = [
-  "circle",
-  "hand-heart",
-  "handshake",
-  "more",
-  "heart",
-  "health",
-  "sparkles",
-  "coffee",
-  "book",
-  "gift",
-  "basket",
-  "briefcase",
-  "car",
-  "repeat",
-  "coins",
-  "trend-up",
-  "plane",
-  "train",
-  "bike",
-  "fuel",
-  "phone",
-  "smartphone",
-  "laptop",
-  "wifi",
-  "receipt",
-  "store",
-  "pizza",
-  "cake",
-  "hotel",
-  "camera",
-  "music",
-  "movie",
-  "game",
-  "gym",
-  "trophy",
-  "education",
-  "clothes",
-  "pet",
-  "baby",
-  "repair",
-  "appliances",
-  "utilities",
-  "vacation",
-  "nature",
-];
+const colors = categoryColors;
+const iconNames = categoryIcons;
 
 function CategoryEditor({
   category,
+  existingCategories,
   onClose,
   onSave,
 }: {
   category?: Category | null;
+  existingCategories: Category[];
   onClose: () => void;
-  onSave: (category: Category) => void;
+  onSave: (category: Category, applyHistory: boolean) => void;
 }) {
   const [name, setName] = useState(category?.name || "");
   const [type, setType] = useState<Category["type"]>(
     category?.type || "expense",
   );
-  const [color, setColor] = useState(category?.color || colors[6]);
-  const [icon, setIcon] = useState(category?.icon || "circle");
+  const [color, setColor] = useState(
+    category?.color ||
+      colors.find((c) => !existingCategories.some((x) => x.color === c)) ||
+      `hsl(${(existingCategories.length * 137.508) % 360} 68% 62%)`,
+  );
+  const [icon, setIcon] = useState(
+    category?.icon ||
+      iconNames.find((i) => !existingCategories.some((x) => x.icon === i)) ||
+      "circle",
+  );
+  const [accountingKind, setAccountingKind] = useState<
+    Category["accountingKind"]
+  >(category?.accountingKind || "personal");
+  const [applyHistory, setApplyHistory] = useState(false);
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (!name.trim()) return;
-    onSave({
-      id: category?.id || `category-${crypto.randomUUID()}`,
-      name: name.trim(),
-      type,
-      color,
-      icon,
-    });
+    if (!name.trim() || !CSS.supports("color", color)) return;
+    onSave(
+      {
+        id: category?.id || `category-${crypto.randomUUID()}`,
+        name: name.trim(),
+        type,
+        color,
+        icon,
+        accountingKind,
+      },
+      applyHistory,
+    );
   };
   return (
     <div
@@ -175,6 +139,36 @@ function CategoryEditor({
           </div>
         </div>
         <div className="management-field">
+          <label>
+            Учёт операций категории
+            <select
+              aria-label="Учёт операций категории"
+              value={accountingKind}
+              onChange={(e) =>
+                setAccountingKind(e.target.value as Category["accountingKind"])
+              }
+            >
+              <option value="personal">Личные доходы и расходы</option>
+              <option value="gift">Подарок / помощь (поступления)</option>
+              <option value="entrusted">Чужие деньги / поручение</option>
+              <option value="debt">Долг / возврат</option>
+            </select>
+          </label>
+          {category && (
+            <label>
+              <input
+                type="checkbox"
+                checked={applyHistory}
+                onChange={(e) => setApplyHistory(e.target.checked)}
+              />{" "}
+              Применить к старым операциям категории
+            </label>
+          )}
+          <small>
+            Меняет статистику, сохраняя суммы и остатки счетов. Помощь исключает
+            только поступления; покупки на подаренные деньги остаются личными
+            расходами.
+          </small>
           <span>Цвет</span>
           <div className="color-picker">
             {colors.map((value) => (
@@ -190,12 +184,31 @@ function CategoryEditor({
           </div>
         </div>
         <div className="management-field">
+          <label>
+            Свой цвет · HEX / RGB / RGBA
+            <input
+              aria-label="Свой цвет"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              placeholder="rgba(59, 130, 246, 0.9)"
+            />
+          </label>
+          <input
+            aria-label="Палитра цвета"
+            type="color"
+            value={/^#[0-9a-f]{6}$/i.test(color) ? color : "#3b82f6"}
+            onChange={(e) => setColor(e.target.value)}
+          />
+          {!CSS.supports("color", color) && (
+            <small role="alert">Введите цвет HEX, RGB или RGBA</small>
+          )}
           <span>Иконка</span>
           <div className="icon-picker">
             {iconNames.map((value) => (
               <button
                 type="button"
                 key={value}
+                aria-label={`Иконка ${value}`}
                 className={icon === value ? "active" : ""}
                 style={{ "--choice": color } as React.CSSProperties}
                 onClick={() => setIcon(value)}
@@ -234,7 +247,7 @@ export function CategoriesPage({
       ),
     [data],
   );
-  const save = async (category: Category) => {
+  const save = async (category: Category, applyHistory: boolean) => {
     const next = structuredClone(data);
     const index = next.categories.findIndex((item) => item.id === category.id);
     if (index >= 0) {
@@ -243,6 +256,16 @@ export function CategoriesPage({
         .filter((item) => item.categoryId === category.id)
         .forEach((item) => {
           item.categoryName = category.name;
+          if (
+            applyHistory &&
+            !item.debtId &&
+            !item.savingsGoalId &&
+            item.type !== "transfer"
+          )
+            item.accountingKind =
+              category.accountingKind === "gift" && item.type === "expense"
+                ? "personal"
+                : category.accountingKind;
         });
     } else next.categories.push(category);
     await onChange(next);
@@ -330,6 +353,7 @@ export function CategoriesPage({
       </div>
       {editing !== undefined && (
         <CategoryEditor
+          existingCategories={data.categories}
           category={editing}
           onClose={() => setEditing(undefined)}
           onSave={save}
@@ -707,6 +731,7 @@ export function BudgetsPage({
         (item) =>
           item.date.startsWith(selectedMonth) &&
           item.type === "expense" &&
+          isPersonalFlow(item) &&
           item.categoryId === budget.categoryId &&
           item.fromCurrency === currency,
       )
@@ -821,6 +846,7 @@ export function BudgetsPage({
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
+    next.lastAccountId = account.id;
     next.transactions.push(transaction);
     adjustCurrentBalances(next, transaction, 1);
     item.completed = true;

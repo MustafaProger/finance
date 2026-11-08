@@ -59,6 +59,9 @@ import type {
   TransactionType,
 } from "./types";
 import {
+  isPersonalFlow,
+  operationPurpose,
+  latestAccountName,
   accountBalance,
   adjustCurrentBalances,
   amountOf,
@@ -94,6 +97,7 @@ import {
 } from "./firebase";
 import { BudgetsPage, CategoriesPage } from "./Management";
 import { GlobalSearch } from "./GlobalSearch";
+import { DebtsPage } from "./Debts";
 import { SavingsPage } from "./Savings";
 import {
   syncSavingsAdjustmentEdit,
@@ -105,6 +109,7 @@ const routes: { id: Route; label: string; icon: typeof BarChart3 }[] = [
   { id: "overview", label: "Обзор", icon: WalletCards },
   { id: "transactions", label: "Операции", icon: List },
   { id: "budgets", label: "Бюджеты", icon: Target },
+  { id: "debts", label: "Долги", icon: UserRound },
   { id: "savings", label: "Накопления", icon: CircleDollarSign },
   { id: "categories", label: "Категории", icon: Tag },
   // Временно отключено для пользователей:
@@ -331,7 +336,18 @@ function filterTransactions(
         (item.toAccount === selectedAccount.name &&
           item.toCurrency === selectedAccount.currency),
     )
-    .filter((item) => filters.type === "all" || item.type === filters.type)
+    .filter(
+      (item) =>
+        filters.type === "all" ||
+        (filters.type === "other"
+          ? !isPersonalFlow(item)
+          : filters.type === "transfer"
+            ? item.type === "transfer" ||
+              Boolean(
+                item.savingsGoalId || item.categoryId === "system-savings",
+              )
+            : item.type === filters.type && isPersonalFlow(item)),
+    )
     .filter(
       (item) =>
         filters.categoryId === "all" || item.categoryId === filters.categoryId,
@@ -896,6 +912,7 @@ function OperationRow({
         <span>
           {category}
           <i>·</i>
+          {operationPurpose(item) && `${operationPurpose(item)} · `}
           {item.type === "income" ? item.toAccount : item.fromAccount}
           {item.tags?.length
             ? ` · ${item.tags
@@ -1035,9 +1052,16 @@ function TransactionModal({
   onDelete,
 }: TransactionModalProps) {
   const initialType = transaction?.type || "expense";
-  const latestAccount = [...data.transactions]
-    .filter((item) => item.type === initialType)
-    .sort(compareTransactionsNewest)[0]?.fromAccount;
+  const latestAccount = latestAccountName(data);
+  const [accountingKind, setAccountingKind] = useState<
+    Transaction["accountingKind"]
+  >(
+    transaction?.accountingKind ||
+      (!transaction
+        ? data.categories.find((c) => c.type !== "income")?.accountingKind
+        : undefined) ||
+      "personal",
+  );
   const [type, setType] = useState<TransactionType>(initialType);
   const [amount, setAmount] = useState(
     String(transaction ? amountOf(transaction) : ""),
@@ -1139,8 +1163,13 @@ function TransactionModal({
     if (type === "transfer" && (!receivedValue || receivedValue <= 0)) return;
     const category = categoryOf(data, categoryId);
     onSave({
+      ...transaction,
       id: transaction?.id || `local-${crypto.randomUUID()}`,
       type,
+      accountingKind:
+        type === "transfer" || (type === "expense" && accountingKind === "gift")
+          ? "personal"
+          : accountingKind,
       date,
       categoryId: type === "transfer" ? "category-без-категории" : category.id,
       categoryName: type === "transfer" ? "Без категории" : category.name,
@@ -1162,6 +1191,11 @@ function TransactionModal({
   };
   const pickCategory = (id: string) => {
     setCategoryId(id);
+    const kind =
+      data.categories.find((c) => c.id === id)?.accountingKind || "personal";
+    setAccountingKind(
+      kind === "gift" && type === "expense" ? "personal" : kind,
+    );
     setPickedCategoryId(id);
     window.setTimeout(() => {
       setCategoryPickerOpen(false);
@@ -1169,6 +1203,41 @@ function TransactionModal({
     }, 180);
   };
   const selectedCategory = categoryOf(data, categoryId);
+  if (transaction?.debtId)
+    return (
+      <div className="modal-backdrop">
+        <section
+          className="management-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Долговая операция"
+        >
+          <header>
+            <h2>{transaction.payee || "Долг"}</h2>
+            <button aria-label="Закрыть" onClick={onClose}>
+              <X />
+            </button>
+          </header>
+          <p>
+            {transaction.comment} ·{" "}
+            {money(amountOf(transaction), currencyOf(transaction))}
+          </p>
+          <p>
+            Операция связана с долгом. Изменить данные или отменить возврат
+            можно в его карточке.
+          </p>
+          <button
+            className="management-submit"
+            onClick={() => {
+              onClose();
+              location.hash = "debts";
+            }}
+          >
+            Открыть долги
+          </button>
+        </section>
+      </div>
+    );
   return (
     <div
       className="modal-backdrop"
@@ -1191,16 +1260,27 @@ function TransactionModal({
           >
             <X size={21} />
           </button>
-          <Select
-            label="Тип операции"
-            value={type}
-            onChange={(value) => setType(value as TransactionType)}
-            options={[
-              { value: "expense", label: "Расход" },
-              { value: "income", label: "Доход" },
-              { value: "transfer", label: "Перевод" },
-            ]}
-          />
+          {transaction &&
+          !isPersonalFlow(transaction) &&
+          (transaction.savingsGoalId ||
+            transaction.categoryId === "system-savings") ? (
+            <strong>Перевод накоплений</strong>
+          ) : (
+            <Select
+              label="Тип операции"
+              value={type}
+              onChange={(value) => {
+                setType(value as TransactionType);
+                if (value !== "income" && accountingKind === "gift")
+                  setAccountingKind("personal");
+              }}
+              options={[
+                { value: "expense", label: "Расход" },
+                { value: "income", label: "Доход" },
+                { value: "transfer", label: "Перевод" },
+              ]}
+            />
+          )}
           <button className="save-link" type="button" onClick={save}>
             Сохранить
           </button>
@@ -1296,6 +1376,36 @@ function TransactionModal({
               </span>
             </button>
           </div>
+        )}
+        {type !== "transfer" && !transaction?.savingsGoalId && (
+          <label className="management-field purpose-field">
+            <span>Назначение операции</span>
+            <select
+              aria-label="Назначение операции"
+              value={accountingKind}
+              onChange={(e) =>
+                setAccountingKind(
+                  e.target.value as Transaction["accountingKind"],
+                )
+              }
+            >
+              <option value="personal">
+                {type === "income" ? "Заработок" : "Личная трата"}
+              </option>
+              {type === "income" && (
+                <option value="gift">Подарок / помощь — не заработок</option>
+              )}
+              <option value="entrusted">Чужие деньги / поручение</option>
+              <option value="debt">
+                Долг / возврат — без учёта в статистике
+              </option>
+            </select>
+            <small>
+              Чужие деньги и долги меняют остаток счёта, но не личные доходы и
+              расходы. Подарки не входят в заработок. Для учёта задолженности
+              используйте вкладку «Долги».
+            </small>
+          </label>
         )}
         <div className="sheet-fields">
           <div className="sheet-row">
@@ -1477,7 +1587,7 @@ function Overview({
         <div className="section-heading">
           <div>
             <h2>Денежный поток</h2>
-            <p>Доходы и расходы за {cashflowPeriodTitle}</p>
+            <p>Заработок и личные расходы за {cashflowPeriodTitle}</p>
           </div>
           <div className="chart-heading-tools">
             <CashflowPeriodControl
@@ -1531,7 +1641,11 @@ function summarizeTransactions(
   let expense = 0;
 
   items.forEach((item) => {
-    if (item.type === "income" && item.toCurrency === "RUB") {
+    if (
+      isPersonalFlow(item) &&
+      item.type === "income" &&
+      item.toCurrency === "RUB"
+    ) {
       const value = Number(item.toAmount || 0);
       income += value;
       incomeCategories.set(
@@ -1539,7 +1653,11 @@ function summarizeTransactions(
         (incomeCategories.get(item.categoryId) || 0) + value,
       );
     }
-    if (item.type === "expense" && item.fromCurrency === "RUB") {
+    if (
+      isPersonalFlow(item) &&
+      item.type === "expense" &&
+      item.fromCurrency === "RUB"
+    ) {
       const value = Number(item.fromAmount || 0);
       expense += value;
       expenseCategories.set(
@@ -1912,7 +2030,7 @@ function Transactions({
     filters.type !== "all" ||
     filters.categoryId !== "all" ||
     filters.accountId !== "all";
-  const setTypeFilter = (type: TransactionType | "all") => {
+  const setTypeFilter = (type: TransactionType | "all" | "other") => {
     const nextType = filters.type === type && type !== "all" ? "all" : type;
     setOpenFilter(null);
     if (nextType === "expense" || nextType === "income") {
@@ -2030,6 +2148,14 @@ function Transactions({
                     onClick={() => setTypeFilter("transfer")}
                   >
                     Переводы
+                  </button>
+                  <button
+                    type="button"
+                    className={filters.type === "other" ? "active" : ""}
+                    aria-pressed={filters.type === "other"}
+                    onClick={() => setTypeFilter("other")}
+                  >
+                    Иные операции
                   </button>
                   <button
                     type="button"
@@ -2661,7 +2787,10 @@ function OverviewAccounts({
         <div className="section-heading overview-accounts-heading">
           <div>
             <h2>Счета</h2>
-            <p>Балансы и движения · {monthLabel(selectedMonth)}</p>
+            <p>
+              Балансы и движения · {monthLabel(selectedMonth)}. Движения
+              включают переводы и иные операции.
+            </p>
           </div>
           <button className="primary-button" onClick={() => setCreating(true)}>
             <Plus /> Добавить счёт
@@ -3243,6 +3372,12 @@ export default function App() {
       });
   };
   const saveTransaction = (item: Transaction) => {
+    if (data.transactions.find((t) => t.id === item.id)?.debtId) {
+      alert(
+        "Операции долга изменяются во вкладке «Долги». Для исправления удалите неверный возврат и запишите новый.",
+      );
+      return;
+    }
     const next = structuredClone(data);
     const index = next.transactions.findIndex(
       (current) => current.id === item.id,
@@ -3251,22 +3386,47 @@ export default function App() {
       const existing = next.transactions[index];
       adjustCurrentBalances(next, existing, -1);
       const syncedItem = syncSavingsAdjustmentEdit(next, existing, item);
-      if (!syncedItem) return;
+      if (!syncedItem) {
+        alert(
+          "Нельзя изменить операцию: часть накопления уже использована либо сумма превышает доступный остаток.",
+        );
+        return;
+      }
       next.transactions[index] = syncedItem;
       item = syncedItem;
     } else next.transactions.push(item);
     adjustCurrentBalances(next, item, 1);
+    next.lastAccountId = next.accounts.find(
+      (a) =>
+        a.name === (item.type === "income" ? item.toAccount : item.fromAccount),
+    )?.id;
     persistData(next);
     setSelectedMonth(item.date.slice(0, 7));
     setTransaction(undefined);
   };
   const deleteTransaction = (id: string) => {
+    if (data.transactions.find((t) => t.id === id)?.debtAction === "opening") {
+      alert(
+        "Удалите долг во вкладке «Долги», чтобы одновременно восстановить остаток счёта.",
+      );
+      return;
+    }
     if (!confirm("Удалить операцию?")) return;
     const next = structuredClone(data);
     const existing = next.transactions.find((item) => item.id === id);
     if (existing) {
       adjustCurrentBalances(next, existing, -1);
-      undoSavingsAdjustment(next, existing);
+      if (
+        (existing.savingsGoalId ||
+          existing.categoryId === "system-savings" ||
+          existing.id.startsWith("saving-operation-")) &&
+        !undoSavingsAdjustment(next, existing)
+      ) {
+        alert(
+          "Нельзя удалить операцию: накопление удалено или часть суммы уже использована. Сначала исправьте связанные операции.",
+        );
+        return;
+      }
     }
     next.transactions = next.transactions.filter((item) => item.id !== id);
     persistData(next);
@@ -3283,6 +3443,7 @@ export default function App() {
     transactions: "Операции",
     budgets: "Бюджеты",
     savings: "Накопления",
+    debts: "Долги",
     categories: "Категории",
     settings: "Настройки",
   }[route];
@@ -3488,6 +3649,9 @@ export default function App() {
               onChange={saveData}
             />
           )}{" "}
+          {route === "debts" && (
+            <DebtsPage data={data} onChange={persistData} />
+          )}
           {route === "savings" && (
             <SavingsPage data={data} onChange={saveData} />
           )}{" "}
