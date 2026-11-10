@@ -5,6 +5,7 @@ import {
   ArrowRight,
   BarChart3,
   Bot,
+  BookOpen,
   CalendarDays,
   Check,
   ChevronDown,
@@ -97,6 +98,7 @@ import {
   type User,
 } from "./firebase";
 import { BudgetsPage, CategoriesPage } from "./Management";
+import { GuideLink, GuidePage } from "./Guide";
 import { GlobalSearch } from "./GlobalSearch";
 import { DebtsPage } from "./Debts";
 import { SavingsPage } from "./Savings";
@@ -113,6 +115,7 @@ const routes: { id: Route; label: string; icon: typeof BarChart3 }[] = [
   { id: "debts", label: "Долги", icon: UserRound },
   { id: "savings", label: "Накопления", icon: CircleDollarSign },
   { id: "categories", label: "Категории", icon: Tag },
+  { id: "guide", label: "Инструкция", icon: BookOpen },
   // Временно отключено для пользователей:
   // { id: "assistant", label: "GPT-анализ", icon: Sparkles },
 ];
@@ -909,7 +912,7 @@ function Login() {
   return (
     <main className="login-page">
       <div className="login-art" aria-hidden="true">
-        <div className="login-logo">К</div>
+        <img className="login-logo" src="/icons/app-icon.svg?v=6" alt="" />
         <div>
           <h2>Финансы без лишнего шума</h2>
           <p>
@@ -926,7 +929,7 @@ function Login() {
       </div>
       <section className="login-panel">
         <div className="mobile-brand">
-          <span>К</span>
+          <img src="/icons/app-icon.svg?v=6" alt="" />
           <strong>Капитал</strong>
         </div>
         <div className="login-heading">
@@ -1063,8 +1066,10 @@ function TransactionModal({
     if (
       type !== "transfer" &&
       !categories.some((item) => item.id === categoryId)
-    )
+    ) {
       setCategoryId(categories[0]?.id || "");
+      setAccountingKind(categories[0]?.accountingKind || "personal");
+    }
   }, [type]);
   useEffect(() => {
     if (type !== "transfer") return;
@@ -1329,10 +1334,17 @@ function TransactionModal({
         )}
         {type !== "transfer" && !transaction?.savingsGoalId && (
           <div className="management-field purpose-field">
-            <span>Назначение операции</span>
+            <div className="field-label-row">
+              <span>Назначение операции</span>
+              <GuideLink />
+            </div>
             <Select
               label="Назначение операции"
-              value={accountingKind || "personal"}
+              value={
+                type === "expense" && accountingKind === "gift"
+                  ? "personal"
+                  : accountingKind || "personal"
+              }
               onChange={(value) =>
                 setAccountingKind(value as Transaction["accountingKind"])
               }
@@ -1348,11 +1360,6 @@ function TransactionModal({
                 { value: "debt", label: "Долг / возврат" },
               ]}
             />
-            <small>
-              Чужие деньги и долги меняют остаток счёта, но не личные доходы и
-              расходы. Подарки не входят в заработок. Для учёта задолженности
-              используйте вкладку «Долги».
-            </small>
           </div>
         )}
         <div className="sheet-fields">
@@ -3448,6 +3455,7 @@ export default function App() {
     debts: "Долги",
     categories: "Категории",
     settings: "Настройки",
+    guide: "Инструкция",
   }[route];
   const bottomRoutes = routes.filter((item) =>
     ["overview", "transactions", "budgets", "savings"].includes(item.id),
@@ -3470,7 +3478,7 @@ export default function App() {
       <aside className={`sidebar ${mobileMenu ? "mobile-open" : ""}`}>
         <button className="brand" onClick={() => navigate("overview")}>
           <span>
-            <img src="/icons/app-icon.svg" alt="" />
+            <img src="/icons/app-icon.svg?v=6" alt="" />
           </span>
           <i>
             <strong>Капитал</strong>
@@ -3658,8 +3666,17 @@ export default function App() {
             <SavingsPage data={data} onChange={saveData} />
           )}{" "}
           {route === "categories" && (
-            <CategoriesPage data={data} onChange={saveData} />
+            <CategoriesPage
+              data={data}
+              onChange={(value) => {
+                const pending = persistData(value);
+                return syncState === "offline" || !navigator.onLine
+                  ? undefined
+                  : pending;
+              }}
+            />
           )}{" "}
+          {route === "guide" && <GuidePage />}
           {route === "settings" && (
             <SettingsPage
               data={data}

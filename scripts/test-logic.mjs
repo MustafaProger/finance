@@ -208,12 +208,32 @@ try {
       transfers: 0,
     });
   }
-  const styled = c.distinguishCategories(base);
-  assert.notEqual(styled.categories[0].color, styled.categories[1].color);
-  assert.notEqual(styled.categories[0].icon, styled.categories[1].icon);
-  assert.deepEqual(c.distinguishCategories(styled), styled);
-  assert.deepEqual(styled.accounts, base.accounts);
-  assert.deepEqual(styled.transactions, base.transactions);
+  const legacy = {
+    ...base,
+    categoryStyleVersion: 1,
+    categories: [
+      { id: "family", name: "Семья", icon: "fuel", color: "#718096" },
+      { id: "food", name: "Продукты", icon: "car", color: "#718096" },
+      { id: "custom", name: "Продукты", icon: "store", color: "#718096" },
+      { id: "fuel", name: "Бензин", icon: "fuel", color: "#718096" },
+      ...base.categories,
+    ],
+  };
+  const styled = c.distinguishCategories(legacy);
+  assert.deepEqual(
+    styled.categories.map(({ icon }) => icon),
+    ["family", "basket", "store", "fuel", "circle", "circle"],
+  );
+  assert.deepEqual(
+    styled.categories.map(({ color }) => color),
+    legacy.categories.map(({ color }) => color),
+  );
+  assert.equal(styled.categoryStyleVersion, 1);
+  assert.equal(c.distinguishCategories(styled), styled);
+  assert.equal(styled.accounts, legacy.accounts);
+  assert.equal(styled.transactions, legacy.transactions);
+  assert.equal(c.suggestedCategoryIcon(" Семья "), "family");
+  assert.equal(c.suggestedCategoryIcon("Бензин"), "fuel");
   assert.equal(
     f.latestAccountName({
       ...base,

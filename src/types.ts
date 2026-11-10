@@ -89,6 +89,7 @@ export interface AppData {
   debts?: Debt[];
   lastAccountId?: string;
   categoryStyleVersion?: number;
+  categoryIconRevision?: number;
   version: number;
   generatedAt: string;
   updatedAt?: string;
@@ -107,4 +108,5 @@ export type Route =
   | "savings"
   | "debts"
   | "categories"
+  | "guide"
   | "settings";

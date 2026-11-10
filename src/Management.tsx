@@ -1,8 +1,14 @@
 import { Select } from "./Select";
-import { categoryColors, categoryIcons } from "./categoryStyles";
-import { FormEvent, useMemo, useState } from "react";
+import {
+  categoryColors,
+  categoryIcons,
+  categoryIconLabels,
+  suggestedCategoryIcon,
+} from "./categoryStyles";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
+  ChevronDown,
   CreditCard,
   Pencil,
   Plus,
@@ -22,8 +28,9 @@ import {
   monthLabel,
 } from "./format";
 import { CategoryGlyph } from "./icons";
+import { GuideLink } from "./Guide";
 
-type ChangeHandler = (data: AppData) => void | Promise<void>;
+type ChangeHandler = (data: AppData) => void | Promise<void | boolean>;
 
 const budgetTotal = (budget: Budget) =>
   budget.items?.reduce((sum, item) => sum + Number(item.amount || 0), 0) ||
@@ -57,8 +64,15 @@ function CategoryEditor({
   category?: Category | null;
   existingCategories: Category[];
   onClose: () => void;
-  onSave: (category: Category, applyHistory: boolean) => void;
+  onSave: (category: Category, applyHistory: boolean) => Promise<boolean>;
 }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const element = dialog.current;
+    element?.showModal();
+    return () => element?.close();
+  }, []);
+
   const [name, setName] = useState(category?.name || "");
   const [type, setType] = useState<Category["type"]>(
     category?.type || "expense",
@@ -66,22 +80,64 @@ function CategoryEditor({
   const [color, setColor] = useState(
     category?.color ||
       colors.find((c) => !existingCategories.some((x) => x.color === c)) ||
-      `hsl(${(existingCategories.length * 137.508) % 360} 68% 62%)`,
+      colors[0],
   );
-  const [icon, setIcon] = useState(
-    category?.icon ||
-      iconNames.find((i) => !existingCategories.some((x) => x.icon === i)) ||
-      "circle",
-  );
-  const [accountingKind, setAccountingKind] = useState<
-    Category["accountingKind"]
-  >(category?.accountingKind || "personal");
+  const [chosenIcon, setIcon] = useState(category?.icon);
+  const [iconQuery, setIconQuery] = useState("");
+  const [expandedIcons, setExpandedIcons] = useState(false);
+  const [expandedColors, setExpandedColors] = useState(false);
+  const initialKind = category?.accountingKind || "personal";
+  const [accountingKind, setAccountingKind] =
+    useState<NonNullable<Category["accountingKind"]>>(initialKind);
   const [applyHistory, setApplyHistory] = useState(false);
-  const submit = (event: FormEvent) => {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(false);
+  const icon = chosenIcon ?? suggestedCategoryIcon(name);
+  const validColor = CSS.supports("color", color);
+  const query = iconQuery.trim().toLowerCase().replace(/ё/g, "е");
+  const featuredIcons = [
+    ...new Set([
+      "circle",
+      "family",
+      "basket",
+      "briefcase",
+      "gift",
+      "home",
+      "transport",
+      "fuel",
+      "receipt",
+      "restaurant",
+      "health",
+      icon,
+    ]),
+  ];
+  const visibleIcons = query
+    ? iconNames.filter((value) =>
+        categoryIconLabels[value]
+          .toLowerCase()
+          .replace(/ё/g, "е")
+          .includes(query),
+      )
+    : expandedIcons
+      ? iconNames
+      : featuredIcons;
+  const visibleColors = expandedColors
+    ? colors
+    : [
+        ...new Set([
+          ...colors.slice(0, 12),
+          ...(colors.includes(color) ? [color] : []),
+        ]),
+      ];
+
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!name.trim() || !CSS.supports("color", color)) return;
-    onSave(
+    if (saving || !name.trim() || !validColor) return;
+    setSaving(true);
+    setError(false);
+    const saved = await onSave(
       {
+        ...category,
         id: category?.id || `category-${crypto.randomUUID()}`,
         name: name.trim(),
         type,
@@ -91,138 +147,273 @@ function CategoryEditor({
       },
       applyHistory,
     );
+    if (!saved) {
+      setError(true);
+      setSaving(false);
+    }
   };
+
   return (
-    <div
-      className="modal-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+    <dialog
+      ref={dialog}
+      className="management-modal category-editor"
+      aria-labelledby="category-editor-title"
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!saving) onClose();
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget && !saving) onClose();
       }}
     >
-      <form className="management-modal" onSubmit={submit}>
-        <header>
+      <form onSubmit={submit}>
+        <header className="category-editor-header">
           <div>
-            <h2>{category ? "Изменить категорию" : "Новая категория"}</h2>
-            <p>Название, назначение и визуальный стиль</p>
+            <h2 id="category-editor-title">
+              {category ? "Изменить категорию" : "Новая категория"}
+            </h2>
+            <p>Настройте учёт и внешний вид</p>
           </div>
-          <button type="button" onClick={onClose}>
-            <X />
+          <button
+            className="category-editor-close"
+            type="button"
+            aria-label="Закрыть"
+            disabled={saving}
+            onClick={onClose}
+          >
+            <X size={18} />
           </button>
         </header>
-        <label className="management-field">
-          <span>Название</span>
-          <input
-            autoFocus
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Например, Дом"
-          />
-        </label>
-        <div className="management-field">
-          <span>Тип операций</span>
-          <div className="segmented">
-            {(
-              [
-                ["expense", "Расходы"],
-                ["income", "Доходы"],
-                ["mixed", "Оба типа"],
-              ] as const
-            ).map(([value, label]) => (
-              <button
-                type="button"
-                className={type === value ? "active" : ""}
-                key={value}
-                onClick={() => setType(value)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="management-field">
-          <span>Учёт операций категории</span>
-          <Select
-            label="Учёт операций категории"
-            value={accountingKind || "personal"}
-            onChange={(value) =>
-              setAccountingKind(value as Category["accountingKind"])
-            }
-            options={[
-              { value: "personal", label: "Личные доходы и расходы" },
-              { value: "gift", label: "Подарок / помощь (поступления)" },
-              { value: "entrusted", label: "Чужие деньги / поручение" },
-              { value: "debt", label: "Долг / возврат" },
-            ]}
-          />
-          {category && (
-            <label>
+
+        <div className="category-editor-body">
+          <section
+            className="category-editor-panel"
+            aria-labelledby="category-accounting"
+          >
+            <h3 id="category-accounting">Основное</h3>
+            <label className="management-field">
+              <span>Название</span>
               <input
-                type="checkbox"
-                checked={applyHistory}
-                onChange={(e) => setApplyHistory(e.target.checked)}
-              />{" "}
-              Применить к старым операциям категории
-            </label>
-          )}
-          <small>
-            Меняет статистику, сохраняя суммы и остатки счетов. Помощь исключает
-            только поступления; покупки на подаренные деньги остаются личными
-            расходами.
-          </small>
-          <span>Цвет</span>
-          <div className="color-picker">
-            {colors.map((value) => (
-              <button
-                type="button"
-                key={value}
-                className={color === value ? "active" : ""}
-                style={{ "--choice": value } as React.CSSProperties}
-                onClick={() => setColor(value)}
-                aria-label={`Цвет ${value}`}
+                autoFocus
+                required
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Например, Семья"
               />
-            ))}
-          </div>
-        </div>
-        <div className="management-field">
-          <label>
-            Свой цвет · HEX / RGB / RGBA
-            <input
-              aria-label="Свой цвет"
-              value={color}
-              onChange={(e) => setColor(e.target.value)}
-              placeholder="rgba(59, 130, 246, 0.9)"
-            />
-          </label>
-          <input
-            aria-label="Палитра цвета"
-            type="color"
-            value={/^#[0-9a-f]{6}$/i.test(color) ? color : "#3b82f6"}
-            onChange={(e) => setColor(e.target.value)}
-          />
-          {!CSS.supports("color", color) && (
-            <small role="alert">Введите цвет HEX, RGB или RGBA</small>
-          )}
-          <span>Иконка</span>
-          <div className="icon-picker">
-            {iconNames.map((value) => (
-              <button
-                type="button"
-                key={value}
-                aria-label={`Иконка ${value}`}
-                className={icon === value ? "active" : ""}
-                style={{ "--choice": color } as React.CSSProperties}
-                onClick={() => setIcon(value)}
+            </label>
+            <div className="management-field">
+              <span id="category-type-label">Тип операций</span>
+              <div
+                className="segmented"
+                role="group"
+                aria-labelledby="category-type-label"
               >
-                <CategoryGlyph name={value} />
-              </button>
-            ))}
-          </div>
+                {(
+                  [
+                    ["expense", "Расходы"],
+                    ["income", "Доходы"],
+                    ["mixed", "Оба типа"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    type="button"
+                    className={type === value ? "active" : ""}
+                    aria-pressed={type === value}
+                    key={value}
+                    onClick={() => setType(value)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="management-field">
+              <div className="field-label-row">
+                <label htmlFor="category-kind">Как учитывать операции</label>
+                <GuideLink />
+              </div>
+              <div className="category-native-select">
+                <select
+                  id="category-kind"
+                  value={accountingKind}
+                  onChange={(event) =>
+                    setAccountingKind(
+                      event.target.value as typeof accountingKind,
+                    )
+                  }
+                >
+                  <option value="personal">Личные доходы и расходы</option>
+                  <option value="gift">Подарок / помощь (поступления)</option>
+                  <option value="entrusted">Чужие деньги / поручение</option>
+                  <option value="debt">Долг / возврат</option>
+                </select>
+                <ChevronDown size={16} aria-hidden />
+              </div>
+            </div>
+            {category && (
+              <label className="category-history">
+                <input
+                  type="checkbox"
+                  checked={applyHistory}
+                  onChange={(e) => setApplyHistory(e.target.checked)}
+                />
+                Применить настройку к старым операциям
+              </label>
+            )}
+          </section>
+
+          <section
+            className="category-editor-panel category-appearance"
+            aria-labelledby="category-appearance"
+          >
+            <h3 id="category-appearance">Оформление</h3>
+            <div className="category-preview">
+              <span
+                className="category-badge"
+                style={
+                  {
+                    "--category": validColor ? color : colors[0],
+                  } as React.CSSProperties
+                }
+              >
+                <CategoryGlyph name={icon} />
+              </span>
+              <div>
+                <strong>{name.trim() || "Название категории"}</strong>
+                <small>Предпросмотр</small>
+              </div>
+            </div>
+            <div className="management-field">
+              <div className="field-label-row">
+                <span>Цвет</span>
+                <button
+                  type="button"
+                  className="category-picker-toggle"
+                  aria-expanded={expandedColors}
+                  onClick={() => setExpandedColors(!expandedColors)}
+                >
+                  {expandedColors ? "Свернуть" : "Все цвета"}
+                </button>
+              </div>
+              <div
+                className="color-picker"
+                role="group"
+                aria-label="Готовые цвета"
+              >
+                {visibleColors.map((value) => (
+                  <button
+                    type="button"
+                    key={value}
+                    className={color === value ? "active" : ""}
+                    aria-pressed={color === value}
+                    style={{ "--choice": value } as React.CSSProperties}
+                    onClick={() => setColor(value)}
+                    aria-label={`Цвет ${value}`}
+                  />
+                ))}
+              </div>
+              <div className="category-custom-color">
+                <input
+                  aria-label="Палитра цвета"
+                  type="color"
+                  value={/^#[0-9a-f]{6}$/i.test(color) ? color : "#3b82f6"}
+                  onChange={(e) => setColor(e.target.value)}
+                />
+                <input
+                  aria-label="Свой цвет"
+                  aria-invalid={!validColor}
+                  value={color}
+                  onChange={(e) => setColor(e.target.value)}
+                  placeholder="HEX, RGB или RGBA"
+                />
+              </div>
+              {!validColor && (
+                <small className="category-editor-error" role="alert">
+                  Введите цвет, например #60A5FA.
+                </small>
+              )}
+            </div>
+            <div className="management-field">
+              <div className="field-label-row">
+                <label htmlFor="category-icon-search">Иконка</label>
+                <button
+                  type="button"
+                  className="category-picker-toggle"
+                  aria-expanded={expandedIcons}
+                  onClick={() => {
+                    setExpandedIcons(!expandedIcons);
+                    setIconQuery("");
+                  }}
+                >
+                  {expandedIcons ? "Свернуть" : "Все иконки"}
+                </button>
+              </div>
+              <input
+                id="category-icon-search"
+                type="search"
+                value={iconQuery}
+                onChange={(e) => setIconQuery(e.target.value)}
+                placeholder="Поиск по названию"
+              />
+              <div
+                className="icon-picker"
+                role="group"
+                aria-label="Иконки категорий"
+              >
+                {visibleIcons.map((value) => (
+                  <button
+                    type="button"
+                    key={value}
+                    aria-label={categoryIconLabels[value]}
+                    title={categoryIconLabels[value]}
+                    aria-pressed={icon === value}
+                    className={icon === value ? "active" : ""}
+                    style={
+                      {
+                        "--choice": validColor ? color : colors[0],
+                      } as React.CSSProperties
+                    }
+                    onClick={() => setIcon(value)}
+                  >
+                    <CategoryGlyph name={value} />
+                  </button>
+                ))}
+              </div>
+              {!visibleIcons.length && (
+                <small role="status">Иконки не найдены.</small>
+              )}
+            </div>
+          </section>
         </div>
-        <button className="management-submit" type="submit">
-          {category ? "Сохранить изменения" : "Добавить категорию"}
-        </button>
+
+        <footer className="category-editor-footer">
+          {error && (
+            <small className="category-editor-error" role="alert">
+              Не удалось сохранить. Проверьте соединение и повторите.
+            </small>
+          )}
+          <button
+            type="button"
+            className="category-editor-cancel"
+            disabled={saving}
+            onClick={onClose}
+          >
+            Отмена
+          </button>
+          <button
+            className="management-submit"
+            type="submit"
+            disabled={saving || !name.trim() || !validColor}
+          >
+            {saving
+              ? "Сохраняем…"
+              : category
+                ? "Сохранить"
+                : "Создать категорию"}
+          </button>
+        </footer>
       </form>
-    </div>
+    </dialog>
   );
 }
 
@@ -260,6 +451,9 @@ export function CategoriesPage({
             applyHistory &&
             !item.debtId &&
             !item.savingsGoalId &&
+            !item.savingsAdjustment &&
+            item.categoryId !== "system-savings" &&
+            !item.id.startsWith("saving-operation-") &&
             item.type !== "transfer"
           )
             item.accountingKind =
@@ -268,8 +462,9 @@ export function CategoriesPage({
                 : category.accountingKind;
         });
     } else next.categories.push(category);
-    await onChange(next);
+    if ((await onChange(next)) === false) return false;
     setEditing(undefined);
+    return true;
   };
   const remove = async (category: Category) => {
     if (category.id === "category-без-категории") return;
